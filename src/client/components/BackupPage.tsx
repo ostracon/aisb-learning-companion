@@ -17,12 +17,14 @@ import {
   type BrowserRecoverySnapshot,
 } from "../../shared/backup.js";
 import { readDraftRecoverySnapshotForBackup } from "../storage/drafts.js";
+import { learningOutcomesDisclosurePreferenceKey } from "../state/outcome-disclosure.js";
 import { UtilityBackLink } from "./UtilityBackLink.js";
 import "../styles/backup.css";
 
 const HASH = /^sha256:[a-f0-9]{64}$/u;
 const BACKUP_LOCAL_STORAGE_KEYS = [
   "aisb-companion:layout:v1",
+  learningOutcomesDisclosurePreferenceKey,
   "aisb-companion:manager-composer:v1",
 ] as const;
 const BACKUP_LOCAL_STORAGE_PREFIXES = [

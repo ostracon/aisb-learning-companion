@@ -47,6 +47,7 @@ import {
   type NoteSaveStatus,
 } from "./hooks/use-note-draft.js";
 import { useLearningProgress } from "./hooks/use-learning-progress.js";
+import { useLearningOutcomesDisclosure } from "./hooks/use-learning-outcomes-disclosure.js";
 import { useWorkspaceLayout } from "./hooks/use-workspace-layout.js";
 import {
   createWorkspaceScrollCarryState,
@@ -1142,7 +1143,8 @@ function WorkspacePage({
     navigate(studyNoteSelectionHref(location, defaultNoteId, defaultNoteId), { replace: true });
   }, [defaultNoteId, isStudy, location, navigate, studyNoteOverride.shouldCanonicalize]);
   const [showAllOutcomes, setShowAllOutcomes] = useState(false);
-  const [outcomesExpanded, setOutcomesExpanded] = useState(true);
+  const outcomesDisclosure = useLearningOutcomesDisclosure();
+  const outcomesExpanded = outcomesDisclosure.expanded;
   const [assistantMode, setAssistantMode] = useState<"tutor" | "review">("tutor");
   const learningProgress = useLearningProgress();
   const [studyMaterialContext, setStudyMaterialContext] = useState<{
@@ -1886,7 +1888,7 @@ function WorkspacePage({
                     aria-label={outcomesExpanded ? "Collapse learning outcomes" : "Expand learning outcomes"}
                     aria-expanded={outcomesExpanded}
                     aria-controls="learning-outcomes-list"
-                    onClick={() => setOutcomesExpanded((current) => !current)}
+                    onClick={outcomesDisclosure.toggle}
                   >
                     {outcomesExpanded ? "↑" : "↓"}
                   </button>

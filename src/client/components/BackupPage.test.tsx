@@ -220,6 +220,10 @@ describe("BackupPage", () => {
 
   it("collects the note draft and only recognised companion browser keys", async () => {
     window.localStorage.setItem("unrelated", "ignored");
+    window.localStorage.setItem(
+      "aisb-companion:learning-outcomes-disclosure:v1",
+      JSON.stringify({ version: 1, expanded: false }),
+    );
     window.localStorage.setItem("aisb-companion:manager-composer:v1", "Plan tomorrow");
     window.localStorage.setItem("aisb-companion:tutor-composer:event:event-a", "Exact tutor draft");
     window.localStorage.setItem(
@@ -246,6 +250,10 @@ describe("BackupPage", () => {
     const snapshot = await collectBrowserRecoverySnapshot();
 
     expect(snapshot.localStorage).toEqual([
+      {
+        key: "aisb-companion:learning-outcomes-disclosure:v1",
+        value: JSON.stringify({ version: 1, expanded: false }),
+      },
       { key: "aisb-companion:manager-composer:v1", value: "Plan tomorrow" },
       { key: "aisb-companion:tutor-composer:event:event-a", value: "Exact tutor draft" },
       {
