@@ -523,6 +523,78 @@ describe("MaterialReader", () => {
     ).closest("details")?.open).toBe(true);
   });
 
+  it("keeps the activated fold summary fixed when disclosure layout shifts", async () => {
+    const foldId = "material-fold-scroll-anchor";
+    const foldedMaterial: MaterialDocumentResponse = {
+      ...material,
+      document: {
+        ...material.document,
+        kind: "participant_instructions",
+        accessClassification: "human_reader_only",
+      },
+      displayProjection: "structured_instructions",
+      browserOnlyFoldCount: 1,
+      display: {
+        markdown: `\`\`\`${MATERIAL_FOLD_DIRECTIVE_LANGUAGE}\n${foldId}\n\`\`\``,
+        folds: [{
+          foldId,
+          summary: "Question: keep this line still",
+          contextVisibility: "browser_only",
+          defaultOpen: false,
+          body: { markdown: "A deliberately tall answer body.", folds: [] },
+        }],
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(response(manifest))
+      .mockResolvedValueOnce(response(foldedMaterial)));
+    const user = userEvent.setup();
+    const view = render(
+      <div className="workspace-scroll" data-testid="workspace-scroll">
+        <MaterialReader
+          dayId="day1"
+          sections={[section]}
+          selectedSectionId="1.1"
+          selectedDocumentId={documentId}
+          selectedFragment={null}
+          onNavigate={vi.fn()}
+        />
+      </div>,
+    );
+
+    const summary = (await screen.findByText("Question: keep this line still")).closest("summary") as HTMLElement;
+    const scroller = view.getByTestId("workspace-scroll");
+    let scrollTop = 500;
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const isFoldSummary = this.dataset.materialFoldId === foldId;
+      const top = isFoldSummary && this.closest("details")?.open ? 100 : isFoldSummary ? 180 : 0;
+      return {
+        bottom: top + 45,
+        height: 45,
+        left: 0,
+        right: 600,
+        top,
+        width: 600,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      };
+    });
+
+    await user.click(summary);
+    const currentSummary = await screen.findByText("Question: keep this line still");
+    await waitFor(() => expect(currentSummary.closest("details")?.open).toBe(true));
+    expect(scrollTop).toBe(420);
+    expect(currentSummary.closest("summary")).toBe(document.activeElement);
+  });
+
   it("preserves independent fold choices while navigating between documents", async () => {
     const secondDocumentId = `doc_${"e".repeat(64)}`;
     const secondDocument = {

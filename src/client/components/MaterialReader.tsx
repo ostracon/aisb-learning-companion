@@ -1,4 +1,12 @@
-import { isValidElement, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  isValidElement,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import type {
   CurriculumSectionView,
@@ -78,7 +86,7 @@ interface MaterialProjectionProps {
   readonly dayId: LearningDayId;
   readonly onNavigate: MaterialReaderProps["onNavigate"];
   readonly foldOpenOverrides: Readonly<Record<string, boolean>>;
-  readonly onFoldToggle: (foldId: string, open: boolean) => void;
+  readonly onFoldToggle: (foldId: string, open: boolean, anchor: HTMLElement) => void;
   readonly headingIdPrefix?: string;
 }
 
@@ -170,15 +178,16 @@ function MaterialProjection({
             open={open}
           >
             <summary
+              data-material-fold-id={fold.foldId}
               aria-expanded={open}
               onClick={(event) => {
                 event.preventDefault();
-                onFoldToggle(fold.foldId, !open);
+                onFoldToggle(fold.foldId, !open, event.currentTarget);
               }}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
-                onFoldToggle(fold.foldId, !open);
+                onFoldToggle(fold.foldId, !open, event.currentTarget);
               }}
             >
               <span>{fold.summary}</span>
@@ -220,13 +229,30 @@ export function MaterialReader({
   const [foldOpenStateByDocument, setFoldOpenStateByDocument] = useState<
     Readonly<Record<string, Readonly<Record<string, boolean>>>>
   >({});
+  const pendingFoldAnchorRef = useRef<{
+    readonly foldId: string;
+    readonly scroller: HTMLElement;
+    readonly summary: HTMLElement;
+    readonly viewportTop: number;
+    readonly restoreFocus: boolean;
+  } | null>(null);
   const loading = manifestLoading || documentLoading;
   const materialDocumentKey = material
     ? `${material.document.documentId}:${material.document.contentHash}`
     : "";
   const foldOpenOverrides = foldOpenStateByDocument[materialDocumentKey] ?? {};
-  const onFoldToggle = (foldId: string, open: boolean) => {
+  const onFoldToggle = (foldId: string, open: boolean, anchor: HTMLElement) => {
     if (!materialDocumentKey) return;
+    const scroller = anchor.closest<HTMLElement>(".workspace-scroll");
+    if (scroller) {
+      pendingFoldAnchorRef.current = {
+        foldId,
+        scroller,
+        summary: anchor,
+        viewportTop: anchor.getBoundingClientRect().top,
+        restoreFocus: document.activeElement === anchor,
+      };
+    }
     setFoldOpenStateByDocument((current) => {
       const overrides = current[materialDocumentKey] ?? {};
       if (overrides[foldId] === open) return current;
@@ -236,6 +262,33 @@ export function MaterialReader({
       };
     });
   };
+
+  useLayoutEffect(() => {
+    const pending = pendingFoldAnchorRef.current;
+    if (!pending) return;
+    pendingFoldAnchorRef.current = null;
+    const summary = pending.summary.isConnected
+      ? pending.summary
+      : Array.from(pending.scroller.querySelectorAll<HTMLElement>(".material-disclosure > summary"))
+        .find((candidate) => candidate.dataset.materialFoldId === pending.foldId);
+    if (!summary) return;
+    const displacement = summary.getBoundingClientRect().top - pending.viewportTop;
+    if (Number.isFinite(displacement) && Math.abs(displacement) >= 0.5) {
+      // A controlled <details> update can otherwise make the browser select a
+      // different scroll anchor. Keep the summary the learner activated fixed
+      // in the viewport without animating the correction.
+      const scrollBehavior = pending.scroller.style.scrollBehavior;
+      pending.scroller.style.scrollBehavior = "auto";
+      try {
+        pending.scroller.scrollTop += displacement;
+      } finally {
+        pending.scroller.style.scrollBehavior = scrollBehavior;
+      }
+    }
+    if (pending.restoreFocus && document.activeElement !== summary) {
+      summary.focus({ preventScroll: true });
+    }
+  }, [foldOpenStateByDocument]);
 
   useEffect(() => {
     if (selectedSectionId !== null && selectedSection !== null) return;
