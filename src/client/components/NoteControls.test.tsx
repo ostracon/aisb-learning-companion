@@ -159,7 +159,7 @@ describe("note picker markers", () => {
     );
 
     const editedOption = await screen.findByRole("option", {
-      name: "* LLM training (changed) · notes/lessons/1.0/notes.md",
+      name: "* LLM training · notes/lessons/1.0/notes.md",
     });
     const blankOption = screen.getByRole("option", {
       name: "Blank quick note · notes/ad-hoc/2026-08-30/day1_quicknote_blank.md",

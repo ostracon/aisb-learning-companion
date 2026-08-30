@@ -231,7 +231,7 @@ export function NoteControls({
             aria-label="Choose a Markdown note"
             aria-describedby="note-picker-key"
             title={currentOption
-              ? `${currentOption.hasLearnerContent ? "Changed · " : ""}${currentOption.title} · ${currentOption.logicalPath}`
+              ? `${currentOption.hasLearnerContent ? "* " : ""}${currentOption.title} · ${currentOption.logicalPath}`
               : undefined}
             value={currentListed ? currentNoteId : ""}
             onChange={(event) => {
@@ -245,26 +245,26 @@ export function NoteControls({
                 <optgroup label="Topic notes">
                   {topicNoteOptions.map((note) => (
                     <option key={note.noteId} value={note.noteId}>
-                      {note.hasLearnerContent ? `* ${note.title} (changed)` : note.title} · {note.logicalPath}
+                      {note.hasLearnerContent ? `* ${note.title}` : note.title} · {note.logicalPath}
                     </option>
                   ))}
                 </optgroup>
                 <optgroup label="Quick notes">
                   {quickNoteOptions.map((note) => (
                     <option key={note.noteId} value={note.noteId}>
-                      {note.hasLearnerContent ? `* ${note.title} (changed)` : note.title} · {note.logicalPath}
+                      {note.hasLearnerContent ? `* ${note.title}` : note.title} · {note.logicalPath}
                     </option>
                   ))}
                 </optgroup>
               </>
             ) : options.map((note) => (
               <option key={note.noteId} value={note.noteId}>
-                {note.hasLearnerContent ? `* ${note.title} (changed)` : note.title} · {note.logicalPath}
+                {note.hasLearnerContent ? `* ${note.title}` : note.title} · {note.logicalPath}
               </option>
             ))}
           </select>
           <span className="sr-only" id="note-picker-key">
-            Notes prefixed with an asterisk and labelled changed differ from their blank template.
+            Notes prefixed with an asterisk differ from their blank template.
           </span>
         </label>
         <button className="text-button" type="button" onClick={() => setShowCreate((current) => !current)}>
