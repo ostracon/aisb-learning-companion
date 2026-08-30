@@ -167,9 +167,22 @@ review that brief and the exact prompt. The assistant cannot generate an image
 or incur image-generation usage by itself: you must select **Generate this
 visual** separately.
 
+## Preparing external references
+
+Open **Prepare references** to inventory the current curriculum's public links
+without network access, or explicitly download supported public HTML and PDF
+sources. Downloaded HTML becomes inert Markdown; PDFs are retained as verified
+bytes and, when Poppler succeeds, page-numbered searchable text. The current
+cache run covers the complete bounded inventory with six workers rather than an
+arbitrary small source count.
+
+Preparation is never automatic. See [Preparing external sources](./docs/source-preparation.md)
+for the exact workflow, current limits, result statuses, storage layout, and
+which assistants may retrieve prepared text.
+
 ## Whole-day review
 
-Open a day in **Today**, then select **Review the whole day**. Each programme
+Open a day in **Today**, then select **Review day**. Each programme
 day has its own restart-resumable review conversation. Start with a concise
 recap, one active-recall question at a time, a likely knowledge gap, or your own
 request.
@@ -357,3 +370,5 @@ answer file remains on disk even if VS Code fails to open.
   decisions, current limits, and verification history.
 - [Design system](./docs/design-system.md) — visual direction and interface
   conventions.
+- [Preparing external sources](./docs/source-preparation.md) — reference
+  inventory, downloads, PDF extraction, retrieval boundaries, and failures.

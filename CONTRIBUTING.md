@@ -27,6 +27,11 @@ paths such as `/Users/learner` in tests.
 Keep `AGENTS.md` current when a product boundary changes, and add a concise
 revision note to the living ExecPlan for material architectural decisions.
 
+Changes to reference discovery, downloading, projection, storage, or assistant
+retrieval must also update [Preparing external sources](./docs/source-preparation.md).
+Keep its limits synchronized with the enforced defaults in
+`src/server/preparation/service.ts` and `src/server/preparation/pdf-text-extractor.ts`.
+
 ## Security issues
 
 Do not open a public issue for a vulnerability or include secrets or personal
