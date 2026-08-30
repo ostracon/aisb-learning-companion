@@ -84,6 +84,7 @@ const child = spawn(process.execPath, [npmExecPath, "start", "--silent"], {
     TMPDIR: process.env.TMPDIR,
     AISB_REPO_PATH: aisbRoot,
     AISB_COMPANION_STATE_PATH: stateRoot,
+    AISB_COMPANION_ALLOW_TEMPORARY_STATE: "true",
     PORT: String(port),
   },
   stdio: ["ignore", "pipe", "pipe"],

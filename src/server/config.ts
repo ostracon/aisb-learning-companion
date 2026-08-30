@@ -1,12 +1,13 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 const envSchema = z.object({
   AISB_REPO_PATH: z.string().trim().min(1).optional(),
   AISB_COMPANION_STATE_PATH: z.string().trim().min(1).optional(),
+  AISB_COMPANION_ALLOW_TEMPORARY_STATE: z.enum(["true", "false"]).default("false"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(7_575),
   HOST: z.literal("127.0.0.1").default("127.0.0.1"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -49,6 +50,52 @@ function resolveFromRoot(value: string, root: string): string {
   return realpathSync(isAbsolute(value) ? value : resolve(root, value));
 }
 
+/**
+ * Resolve symlinks in the longest existing prefix while preserving any
+ * not-yet-created suffix. State directories do not have to exist at startup,
+ * but their existing parents still define where the data will really live.
+ */
+function canonicalizePathForSafety(candidate: string): string {
+  const absolute = resolve(candidate);
+  let existingPrefix = absolute;
+
+  while (!existsSync(existingPrefix)) {
+    const parent = dirname(existingPrefix);
+    if (parent === existingPrefix) break;
+    existingPrefix = parent;
+  }
+
+  const canonicalPrefix = realpathSync(existingPrefix);
+  return resolve(canonicalPrefix, relative(existingPrefix, absolute));
+}
+
+function isWithin(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${sep}`);
+}
+
+function platformTemporaryRoots(): readonly string[] {
+  if (process.platform === "win32") return [];
+
+  const candidates = [tmpdir(), "/tmp", "/private/tmp", "/var/tmp"];
+  if (process.platform === "darwin") {
+    candidates.push("/var/folders", "/private/var/folders");
+  }
+  return candidates;
+}
+
+/** Returns the canonical temporary root containing a state path, if any. */
+export function temporaryStateRoot(
+  candidate: string,
+  roots: readonly string[] = platformTemporaryRoots(),
+): string | null {
+  const canonicalCandidate = canonicalizePathForSafety(candidate);
+  const canonicalRoots = new Set(roots.map(canonicalizePathForSafety));
+  for (const root of canonicalRoots) {
+    if (isWithin(canonicalCandidate, root)) return root;
+  }
+  return null;
+}
+
 export function validateAisbRoot(candidate: string, companionRoot: string): string {
   const resolved = realpathSync(candidate);
   if (resolved === companionRoot) {
@@ -73,11 +120,26 @@ export function resolveRuntimeConfig(
       ? parsed.AISB_COMPANION_STATE_PATH
       : resolve(companionRoot, parsed.AISB_COMPANION_STATE_PATH)
     : join(homedir(), "Library", "Application Support", "AISB Learning Companion");
+  const stateRoot = resolve(stateCandidate);
+
+  if (
+    parsed.NODE_ENV === "production" &&
+    parsed.AISB_COMPANION_ALLOW_TEMPORARY_STATE !== "true"
+  ) {
+    const temporaryRoot = temporaryStateRoot(stateRoot);
+    if (temporaryRoot !== null) {
+      throw new Error(
+        `Refusing to use temporary learner state in production: ${stateRoot} resolves under ${temporaryRoot}. ` +
+          "Choose a durable AISB_COMPANION_STATE_PATH (or unset it to use the default). " +
+          "For an intentionally disposable test only, set AISB_COMPANION_ALLOW_TEMPORARY_STATE=true.",
+      );
+    }
+  }
 
   return {
     companionRoot,
     aisbRoot,
-    stateRoot: resolve(stateCandidate),
+    stateRoot,
     host: parsed.HOST,
     port: parsed.PORT,
     mode: parsed.NODE_ENV,

@@ -156,6 +156,7 @@ All settings are optional when the two repositories are siblings.
 | --- | --- | --- |
 | `AISB_REPO_PATH` | `../aisb` | Location of the AISB repository. |
 | `AISB_COMPANION_STATE_PATH` | `~/Library/Application Support/AISB Learning Companion` | Location of notes, chats, progress, cached references, and generated images. |
+| `AISB_COMPANION_ALLOW_TEMPORARY_STATE` | `false` | Set to `true` only for an intentionally disposable production smoke test. Never use it for learner data. |
 | `PORT` | `7575` | Local port used by the web app. |
 | `CODEX_OPENAI_API_KEY` | unset | Enables explicitly approved image generation. |
 
@@ -264,6 +265,21 @@ with `node --version`.
 
 Set `AISB_REPO_PATH` to the absolute path of the AISB repository, then
 restart the app.
+
+### Production refuses a temporary state path
+
+The production server will not start when learner state resolves inside a
+temporary directory such as `/tmp` or `/private/tmp`. Temporary directories can
+be cleared by the operating system, which would make notes and chat history
+appear to disappear.
+
+Unset `AISB_COMPANION_STATE_PATH` to use the durable default, or point it at a
+durable absolute directory and restart the app. The error reports both the
+configured path and the temporary directory it resolves into, including through
+symlinks.
+
+`AISB_COMPANION_ALLOW_TEMPORARY_STATE=true` is reserved for disposable automated
+smoke tests. Do not use that override for course notes or other learner data.
 
 ### Tutor or review cannot start
 
