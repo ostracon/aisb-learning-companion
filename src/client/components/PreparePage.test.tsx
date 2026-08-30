@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -98,5 +98,58 @@ describe("PreparePage", () => {
 
     expect(await screen.findByText("HTML + Markdown · 12 bytes")).toBeTruthy();
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an explicit live status visible until caching publishes its result", async () => {
+    const user = userEvent.setup();
+    let finishRun: ((response: Response) => void) | undefined;
+    const pendingRun = new Promise<Response>((resolve) => {
+      finishRun = resolve;
+    });
+    const run = {
+      schemaVersion: 1 as const,
+      runId: "prep_feedback",
+      startedAt: "2026-08-30T10:00:00.000Z",
+      completedAt: "2026-08-30T10:00:02.000Z",
+      status: "partial" as const,
+      inventoryTruncated: false,
+      discoveredCount: 3,
+      cachedCount: 2,
+      failedCount: 1,
+      totalCachedBytes: 24,
+      limits: {
+        maxInventorySources: 256,
+        maxSources: 24,
+        maxSourceBytes: 2_097_152,
+        maxTotalBytes: 12_582_912,
+        maxRedirects: 3,
+        requestTimeoutMs: 15_000,
+      },
+      sources: [],
+    };
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/preparation") {
+        return new Response(JSON.stringify(emptyState), { status: 200 });
+      }
+      return pendingRun;
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<MemoryRouter><PreparePage /></MemoryRouter>);
+    await screen.findByText(/No preparation run yet/u);
+
+    await user.click(screen.getByRole("button", { name: "Inventory & cache public sources" }));
+
+    expect(screen.getByRole("status").textContent).toContain("Run in progress");
+    expect(screen.getByText("Caching public sources safely")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Fetching safely…" }) as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      finishRun?.(new Response(JSON.stringify(run), { status: 201 }));
+      await pendingRun;
+    });
+
+    expect(screen.getByRole("status").textContent).toContain("Run finished");
+    expect(screen.getByText("2 cached · 1 failed safely")).toBeTruthy();
+    expect(screen.getByText(/3 sources found/u)).toBeTruthy();
   });
 });

@@ -9,6 +9,11 @@ import "../styles/prepare.css";
 
 type StartMode = "inventory" | "cache";
 
+interface CompletedRunFeedback {
+  readonly mode: StartMode;
+  readonly run: PreparationRunView;
+}
+
 async function readJson<T>(response: Response, fallback: string): Promise<T> {
   const body = await response.json() as T & { readonly error?: string };
   if (!response.ok) throw new Error(body.error ?? fallback);
@@ -108,10 +113,68 @@ function RunLedger({ run }: { readonly run: PreparationRunView }) {
   );
 }
 
+function RunFeedback({
+  busy,
+  completed,
+  elapsedSeconds,
+}: {
+  readonly busy: StartMode | null;
+  readonly completed: CompletedRunFeedback | null;
+  readonly elapsedSeconds: number;
+}) {
+  if (busy !== null) {
+    const action = busy === "cache"
+      ? "Caching public sources safely"
+      : "Inventorying curriculum links locally";
+    return (
+      <section
+        className="prepare-run-feedback prepare-run-feedback-active"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span className="prepare-run-spinner" aria-hidden="true" />
+        <div>
+          <p className="prepare-feedback-label">Run in progress</p>
+          <strong>{action}</strong>
+          <p>
+            Request active <span aria-hidden="true">· {elapsedSeconds}s elapsed</span>. Results are published together when the bounded run finishes.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  if (completed === null) return null;
+  const { mode, run } = completed;
+  const inventorySummary = `${run.discoveredCount} source${run.discoveredCount === 1 ? "" : "s"} found`;
+  const cacheSummary = `${run.cachedCount} cached · ${run.failedCount} failed safely`;
+  return (
+    <section
+      className={`prepare-run-feedback prepare-run-feedback-${run.status}`}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span className="prepare-run-finished-mark" aria-hidden="true">✓</span>
+      <div>
+        <p className="prepare-feedback-label">Run finished</p>
+        <strong>{mode === "cache" ? cacheSummary : inventorySummary}</strong>
+        <p>
+          {mode === "cache" ? `${inventorySummary}. ` : "No external sources were contacted. "}
+          The immutable results are listed below.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 /** A deliberately explicit preparation surface. Merely opening it performs no external request. */
 export function PreparePage() {
   const [state, setState] = useState<PreparationStateResponse | null>(null);
   const [busy, setBusy] = useState<StartMode | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [completed, setCompleted] = useState<CompletedRunFeedback | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -129,9 +192,22 @@ export function PreparePage() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (busy === null) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const updateElapsed = () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000));
+    updateElapsed();
+    const interval = window.setInterval(updateElapsed, 1_000);
+    return () => window.clearInterval(interval);
+  }, [busy]);
+
   const start = async (mode: StartMode) => {
     if (busy !== null) return;
     setBusy(mode);
+    setCompleted(null);
     setError(null);
     try {
       const response = await fetch("/api/preparation/runs", {
@@ -146,6 +222,7 @@ export function PreparePage() {
         enrichment: "disabled",
         transcription: "public-captions-only-not-enabled",
       });
+      setCompleted({ mode, run });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Preparation did not complete");
     } finally {
@@ -189,6 +266,7 @@ export function PreparePage() {
       </div>
 
       {error ? <p className="prepare-error" role="alert">{error}</p> : null}
+      <RunFeedback busy={busy} completed={completed} elapsedSeconds={elapsedSeconds} />
       {state === null && error === null ? <p className="prepare-loading" role="status">Reading local preparation history…</p> : null}
       {state?.latestRun ? <RunLedger run={state.latestRun} /> : state ? (
         <p className="prepare-empty">No preparation run yet. Inventorying links is local-only; caching is the explicit network action.</p>

@@ -1,21 +1,119 @@
 .prepare-page {
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--divider-strong) var(--paper-quiet);
+  scrollbar-gutter: stable;
   background: var(--paper);
   color: var(--ink);
   padding: clamp(1.25rem, 4vw, 4.5rem);
   font-family: var(--ui);
 }
 
+.prepare-page::-webkit-scrollbar {
+  width: 0.75rem;
+}
+
+.prepare-page::-webkit-scrollbar-track {
+  background: var(--paper-quiet);
+}
+
+.prepare-page::-webkit-scrollbar-thumb {
+  border: 3px solid var(--paper-quiet);
+  border-radius: 999px;
+  background: var(--divider-strong);
+}
+
 .prepare-header,
 .prepare-actions,
 .prepare-boundary,
 .prepare-ledger,
+.prepare-run-feedback,
 .prepare-error,
 .prepare-loading,
 .prepare-empty {
   width: min(100%, 76rem);
   margin-inline: auto;
+}
+
+.prepare-run-feedback {
+  position: sticky;
+  z-index: 5;
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  min-height: 4.5rem;
+  border-bottom: 1px solid var(--divider-strong);
+  background: rgb(245 241 232 / 96%);
+  padding: 0.9rem 0;
+  box-shadow: 0 0.55rem 1.1rem rgb(23 23 21 / 5%);
+  backdrop-filter: blur(12px);
+}
+
+.prepare-run-feedback > div {
+  min-width: 0;
+}
+
+.prepare-run-feedback strong {
+  display: block;
+  line-height: 1.35;
+}
+
+.prepare-run-feedback p {
+  margin: 0.22rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.prepare-run-feedback .prepare-feedback-label {
+  margin: 0 0 0.15rem;
+  color: var(--faint);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.prepare-run-spinner,
+.prepare-run-finished-mark {
+  flex: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.15rem;
+}
+
+.prepare-run-spinner {
+  border: 2px solid var(--divider-strong);
+  border-top-color: var(--cobalt);
+  border-radius: 50%;
+  animation: prepare-spin 800ms linear infinite;
+}
+
+.prepare-run-finished-mark {
+  display: grid;
+  border-radius: 50%;
+  background: var(--success);
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 700;
+  place-items: center;
+}
+
+.prepare-run-feedback-partial .prepare-run-finished-mark {
+  background: var(--warning);
+}
+
+.prepare-run-feedback-failed .prepare-run-finished-mark {
+  background: var(--danger);
+}
+
+@keyframes prepare-spin {
+  to { transform: rotate(1turn); }
 }
 
 .prepare-header {
