@@ -207,7 +207,10 @@ export function NoteControls({
           <span className="sr-only">Choose a Markdown note</span>
           <select
             aria-label="Choose a Markdown note"
-            title={currentOption ? `${currentOption.title} · ${currentOption.logicalPath}` : undefined}
+            aria-describedby="note-picker-key"
+            title={currentOption
+              ? `${currentOption.hasLearnerContent ? "Changed · " : ""}${currentOption.title} · ${currentOption.logicalPath}`
+              : undefined}
             value={currentListed ? currentNoteId : ""}
             onChange={(event) => {
               const selected = options.find((note) => note.noteId === event.currentTarget.value);
@@ -217,10 +220,13 @@ export function NoteControls({
             {!currentListed ? <option value="">Current note · loading index…</option> : null}
             {options.map((note) => (
               <option key={note.noteId} value={note.noteId}>
-                {note.title} · {note.logicalPath}
+                {note.hasLearnerContent ? `* ${note.title} (changed)` : note.title} · {note.logicalPath}
               </option>
             ))}
           </select>
+          <span className="sr-only" id="note-picker-key">
+            Notes prefixed with an asterisk and labelled changed differ from their blank template.
+          </span>
         </label>
         <button className="text-button" type="button" onClick={() => setShowCreate((current) => !current)}>
           {showCreate ? "Cancel new note" : "New quick note"}

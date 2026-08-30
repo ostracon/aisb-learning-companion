@@ -449,6 +449,7 @@ export interface NoteListItemView {
   lastModifiedAt: string;
   logicalPath: string;
   routePath: string;
+  hasLearnerContent: boolean;
 }
 
 export interface NoteListResponse {

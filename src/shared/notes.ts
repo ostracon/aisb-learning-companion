@@ -24,6 +24,38 @@ export function createNoteTemplate(title: string): string {
   return noteTemplateForHeading(normalizedNoteHeading(title));
 }
 
+const BLANK_NOTE_SKELETONS = [
+  ["## Raw Notes", "## Key ideas", "## Questions", "## Reflection"],
+  ["## Raw Notes", "## Key ideas", "## Questions", "## Answers", "## Reflection"],
+  ["## Key ideas", "## Questions", "## Answers", "## Reflection"],
+  ["## Key ideas", "## Questions", "## Reflection"],
+] as const;
+
+/**
+ * Report whether the saved body contains learner-authored material rather than
+ * only a current or legacy blank template. Metadata and title changes are not
+ * learner content, and whitespace-only formatting does not create a marker.
+ *
+ * This display-only classifier is deliberately broader than the exact-match
+ * migration guard: template migrations must never rewrite an ambiguous
+ * body, while this marker can safely avoid a cosmetic false positive.
+ */
+export function noteHasLearnerContent(markdown: string): boolean {
+  const nonBlankLines = markdown
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (nonBlankLines.length === 0) return false;
+
+  const bodyLines = /^#(?:\s|$)/u.test(nonBlankLines[0] ?? "")
+    ? nonBlankLines.slice(1)
+    : nonBlankLines;
+  return !BLANK_NOTE_SKELETONS.some((skeleton) =>
+    skeleton.length === bodyLines.length
+    && skeleton.every((line, index) => line === bodyLines[index]));
+}
+
 /**
  * Upgrade only exact, untouched templates from earlier heading layouts.
  * This removes the former separate `## Answers` heading so responses can sit
@@ -114,6 +146,7 @@ export interface NoteSummary {
   readonly locator: NoteLocator;
   readonly logical_path: string;
   readonly content_hash: string;
+  readonly has_learner_content: boolean;
 }
 
 export class NoteValidationError extends Error {
@@ -486,5 +519,6 @@ export function noteSummary(record: NoteRecord): NoteSummary {
     locator: record.locator,
     logical_path: record.logical_path,
     content_hash: record.content_hash,
+    has_learner_content: noteHasLearnerContent(record.markdown),
   });
 }

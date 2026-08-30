@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { parseNoteMarkdown, type NoteLocator } from "../../shared/notes";
+import { createNoteTemplate, parseNoteMarkdown, type NoteLocator } from "../../shared/notes";
 import { MarkdownNoteStore, NoteStoreError } from "./store";
 
 const temporaryRoots: string[] = [];
@@ -111,6 +111,40 @@ describe("MarkdownNoteStore create/read/list", () => {
       logical_path: created.note.logical_path,
       locator: { kind: "ad_hoc", note_id: "day0_quicknote_setup_questions" },
     });
+  });
+
+  it("derives learner-content markers from the saved Markdown body", async () => {
+    const stateRoot = await temporaryStateRoot();
+    const store = new MarkdownNoteStore(stateRoot, { create_id: idSequence() });
+    const locator: NoteLocator = { kind: "lesson", section_id: "1.0" };
+    const blank = await store.create({
+      ...locator,
+      note_id: "lesson-1.0",
+      title: "LLM training",
+      markdown: createNoteTemplate("LLM training"),
+    });
+
+    expect((await store.list())[0]?.has_learner_content).toBe(false);
+
+    const renamed = await store.save(locator, {
+      note_id: "lesson-1.0",
+      expected_revision: blank.note.frontmatter.revision,
+      expected_content_hash: blank.note.content_hash,
+      title: "Renamed session",
+      markdown: blank.note.markdown,
+    });
+    expect(renamed.status).toBe("saved");
+    if (renamed.status !== "saved") throw new Error("expected renamed note to save");
+    expect((await store.list())[0]?.has_learner_content).toBe(false);
+
+    const authored = await store.save(locator, {
+      note_id: "lesson-1.0",
+      expected_revision: renamed.note.frontmatter.revision,
+      expected_content_hash: renamed.note.content_hash,
+      markdown: renamed.note.markdown.replace("## Raw Notes\n", "## Raw Notes\nA useful thought.\n"),
+    });
+    expect(authored.status).toBe("saved");
+    expect((await store.list())[0]?.has_learner_content).toBe(true);
   });
 
   it("reports one malformed Markdown file without hiding valid notes", async () => {

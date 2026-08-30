@@ -45,6 +45,71 @@ describe("quick-note naming", () => {
   });
 });
 
+describe("note picker markers", () => {
+  it("marks notes that differ from their blank template", async () => {
+    const onNavigate = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "/api/notes") throw new Error(`Unexpected fetch: ${String(input)}`);
+      return jsonResponse({
+        notes: [
+          {
+            noteId: currentNoteId,
+            noteKind: "lesson",
+            title: "LLM training",
+            revision: 2,
+            status: "active",
+            lastModifiedAt: "2026-08-30T20:00:00.000Z",
+            logicalPath: "notes/lessons/1.0/notes.md",
+            routePath: "/study/day1/section/1.0",
+            hasLearnerContent: true,
+          },
+          {
+            noteId: "day1_quicknote_blank",
+            noteKind: "ad_hoc",
+            title: "Blank quick note",
+            revision: 1,
+            status: "active",
+            lastModifiedAt: "2026-08-30T19:00:00.000Z",
+            logicalPath: "notes/ad-hoc/2026-08-30/day1_quicknote_blank.md",
+            routePath: "/notes/day1_quicknote_blank",
+            hasLearnerContent: false,
+          },
+        ],
+        unreadable: [],
+      });
+    }));
+
+    render(
+      <NoteControls
+        dayId="day1"
+        scopeMode="study"
+        sectionIds={["1.0"]}
+        currentNoteId={currentNoteId}
+        currentRevision={2}
+        currentContentHash={staleHash}
+        saveStatus="saved-disk"
+        onNavigate={onNavigate}
+      />,
+    );
+
+    const editedOption = await screen.findByRole("option", {
+      name: "* LLM training (changed) · notes/lessons/1.0/notes.md",
+    });
+    const blankOption = screen.getByRole("option", {
+      name: "Blank quick note · notes/ad-hoc/2026-08-30/day1_quicknote_blank.md",
+    });
+    expect(editedOption.textContent?.startsWith("* ")).toBe(true);
+    expect(blankOption.textContent?.startsWith("* ")).toBe(false);
+    expect(screen.getByText(/prefixed with an asterisk/i)).toBeTruthy();
+
+    await userEvent.setup().selectOptions(
+      screen.getByRole("combobox", { name: "Choose a Markdown note" }),
+      "day1_quicknote_blank",
+    );
+    expect(onNavigate).toHaveBeenCalledWith("/notes/day1_quicknote_blank");
+  });
+});
+
 describe("opening Markdown notes in VS Code", () => {
   it("opens the fresh on-disk version during a preserved browser conflict", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

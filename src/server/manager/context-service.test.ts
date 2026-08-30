@@ -27,6 +27,7 @@ const noteSummary: NoteSummary = {
   locator: { kind: "lesson", section_id: "1.1" },
   logical_path: "notes/lessons/1.1/lesson-1.1.md",
   content_hash: "a".repeat(64),
+  has_learner_content: true,
 };
 
 describe("ManagerContextService", () => {

@@ -876,6 +876,7 @@ app.get("/api/notes", async () => {
         lastModifiedAt: summary.last_modified_at,
         logicalPath: summary.logical_path,
         routePath: routeForNote(summary, schedule.events),
+        hasLearnerContent: summary.has_learner_content,
       })),
     unreadable: inventory.unreadable.map((issue) => ({
       logicalPath: issue.logical_path,

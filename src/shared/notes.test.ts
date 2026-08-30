@@ -4,6 +4,7 @@ import {
   assertNoteMatchesLocator,
   createNoteTemplate,
   makeAdHocTimestampSlug,
+  noteHasLearnerContent,
   noteLogicalPath,
   parseNoteMarkdown,
   serializeNoteMarkdown,
@@ -36,6 +37,27 @@ describe("note templates", () => {
     expect(
       upgradeUntouchedNoteTemplate(previous.replace("# Lesson 1.2", "# My  Lesson 1.2"), "Lesson 1.2"),
     ).toBeNull();
+  });
+
+  it("distinguishes blank templates from learner-authored notes", () => {
+    const current = createNoteTemplate("Lesson 1.2");
+    const previous = "# Lesson 1.2\n\n## Raw Notes\n\n\n## Key ideas\n\n\n## Questions\n\n\n## Answers\n\n\n## Reflection\n\n";
+    const preRawNotes = "# Lesson 1.2\n\n## Key ideas\n\n\n## Questions\n\n\n## Answers\n\n\n## Reflection\n\n";
+    const oldest = "# Lesson 1.2\n\n## Key ideas\n\n\n## Questions\n\n\n## Reflection\n\n";
+
+    expect(noteHasLearnerContent(current)).toBe(false);
+    expect(noteHasLearnerContent(previous)).toBe(false);
+    expect(noteHasLearnerContent(preRawNotes)).toBe(false);
+    expect(noteHasLearnerContent(oldest)).toBe(false);
+    expect(noteHasLearnerContent("  \r\n\t\r\n")).toBe(false);
+    expect(noteHasLearnerContent(current.replace("# Lesson 1.2", "# Renamed lesson"))).toBe(false);
+    expect(noteHasLearnerContent(current.replace(/\n/gu, " \r\n"))).toBe(false);
+    expect(noteHasLearnerContent(
+      current.replace("## Raw Notes\n\n", "## Raw Notes\n\nMy own text.\n"),
+    )).toBe(true);
+    expect(noteHasLearnerContent(current.replace("## Key ideas", "## Main ideas")))
+      .toBe(true);
+    expect(noteHasLearnerContent(createNoteTemplate("Lesson 1.2"))).toBe(false);
   });
 });
 
