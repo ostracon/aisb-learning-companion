@@ -1,0 +1,240 @@
+.backup-page {
+  min-height: 100%;
+  overflow-y: auto;
+  background: var(--paper);
+  color: var(--ink);
+  padding: clamp(1.25rem, 4vw, 4.5rem);
+  font-family: var(--ui);
+}
+
+.backup-header,
+.backup-action,
+.backup-boundary,
+.backup-ledger,
+.backup-restore,
+.backup-error {
+  width: min(100%, 76rem);
+  margin-inline: auto;
+}
+
+.backup-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 3rem;
+  padding-bottom: clamp(1.75rem, 4vw, 3.5rem);
+  border-bottom: 1px solid var(--divider-strong);
+}
+
+.backup-header > div {
+  max-width: 47rem;
+}
+
+.backup-eyebrow {
+  margin: 0 0 0.55rem;
+  color: var(--faint);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.backup-header h1 {
+  max-width: 13ch;
+  margin: 0;
+  font: 400 clamp(2.5rem, 6vw, 5rem) / 0.98 var(--display);
+  letter-spacing: -0.04em;
+}
+
+.backup-header p:not(.backup-eyebrow) {
+  max-width: 44rem;
+  margin: 1.35rem 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.backup-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  padding-block: 2rem;
+  border-bottom: 1px solid var(--divider);
+}
+
+.backup-action > div {
+  max-width: 48rem;
+}
+
+.backup-action h2,
+.backup-ledger h2,
+.backup-restore h2 {
+  margin: 0;
+  font: 400 1.65rem/1.2 var(--display);
+}
+
+.backup-action p,
+.backup-restore > p:last-child {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.backup-action button {
+  flex: none;
+  min-height: 2.75rem;
+  border: 1px solid var(--cobalt);
+  border-radius: 0.35rem;
+  background: var(--cobalt);
+  color: white;
+  padding: 0.7rem 1rem;
+  font: 650 0.88rem/1 var(--ui);
+  cursor: pointer;
+}
+
+.backup-action button:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.backup-action button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--cobalt) 25%, transparent);
+  outline-offset: 3px;
+}
+
+.backup-action button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.backup-boundary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.5rem;
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--divider);
+  color: var(--faint);
+  font-size: 0.8rem;
+}
+
+.backup-boundary span::before {
+  content: "·";
+  margin-right: 0.55rem;
+  color: var(--cobalt);
+}
+
+.backup-error {
+  margin-top: 1.5rem;
+  border-left: 3px solid var(--danger);
+  background: var(--paper-raised);
+  color: var(--danger);
+  padding: 0.85rem 1rem;
+  line-height: 1.5;
+}
+
+.backup-ledger {
+  padding-block: clamp(2rem, 4vw, 3.5rem);
+  border-bottom: 1px solid var(--divider-strong);
+}
+
+.backup-ledger-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.backup-ledger-heading > span {
+  color: var(--success);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.backup-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 1.5rem 0 0;
+  border-block: 1px solid var(--divider);
+}
+
+.backup-totals div {
+  min-width: 0;
+  padding: 1rem 1rem 1rem 0;
+}
+
+.backup-totals dt,
+.backup-scope h3 {
+  color: var(--faint);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.backup-totals dd {
+  margin: 0.3rem 0 0;
+  font: 400 1.45rem/1.1 var(--display);
+}
+
+.backup-totals code {
+  overflow-wrap: anywhere;
+  font: 500 0.82rem/1.2 var(--mono);
+}
+
+.backup-scope {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(1.5rem, 4vw, 4rem);
+  margin-top: 1.75rem;
+}
+
+.backup-scope h3 {
+  margin: 0;
+}
+
+.backup-scope p,
+.backup-private-note {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.backup-private-note {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.backup-restore {
+  padding-top: clamp(2rem, 4vw, 3rem);
+}
+
+.backup-restore > p:last-child {
+  max-width: 48rem;
+}
+
+@media (max-width: 720px) {
+  .backup-header,
+  .backup-action {
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .backup-action {
+    align-items: stretch;
+  }
+
+  .backup-action button {
+    width: 100%;
+  }
+
+  .backup-totals,
+  .backup-scope {
+    grid-template-columns: 1fr;
+  }
+
+  .backup-totals div + div {
+    border-top: 1px solid var(--divider);
+  }
+}

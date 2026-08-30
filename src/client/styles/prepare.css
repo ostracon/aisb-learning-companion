@@ -1,0 +1,355 @@
+.prepare-page {
+  min-height: 100%;
+  overflow-y: auto;
+  background: var(--paper);
+  color: var(--ink);
+  padding: clamp(1.25rem, 4vw, 4.5rem);
+  font-family: var(--ui);
+}
+
+.prepare-header,
+.prepare-actions,
+.prepare-boundary,
+.prepare-ledger,
+.prepare-error,
+.prepare-loading,
+.prepare-empty {
+  width: min(100%, 76rem);
+  margin-inline: auto;
+}
+
+.prepare-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 3rem;
+  padding-bottom: clamp(1.75rem, 4vw, 3.5rem);
+  border-bottom: 1px solid var(--divider-strong);
+}
+
+.prepare-header > div {
+  max-width: 47rem;
+}
+
+.prepare-eyebrow {
+  margin: 0 0 0.55rem;
+  color: var(--faint);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.prepare-header h1 {
+  max-width: 13ch;
+  margin: 0;
+  font: 400 clamp(2.5rem, 6vw, 5rem) / 0.98 var(--display);
+  letter-spacing: -0.04em;
+}
+
+.prepare-header p:not(.prepare-eyebrow) {
+  max-width: 44rem;
+  margin: 1.35rem 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.prepare-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  padding-block: 2rem;
+  border-bottom: 1px solid var(--divider);
+}
+
+.prepare-actions h2,
+.prepare-ledger h2 {
+  margin: 0;
+  font: 400 1.65rem/1.2 var(--display);
+}
+
+.prepare-actions p {
+  margin: 0.4rem 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.prepare-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.prepare-action-buttons button {
+  min-height: 2.65rem;
+  border: 1px solid var(--divider-strong);
+  border-radius: 0.35rem;
+  background: var(--paper-raised);
+  color: var(--ink);
+  padding: 0.65rem 0.9rem;
+  cursor: pointer;
+}
+
+.prepare-action-buttons button:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+
+.prepare-action-buttons .prepare-primary {
+  border-color: var(--cobalt);
+  background: var(--cobalt);
+  color: white;
+}
+
+.prepare-action-buttons button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.prepare-boundary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.5rem;
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--divider);
+  color: var(--faint);
+  font-size: 0.8rem;
+}
+
+.prepare-boundary span::before {
+  content: "·";
+  margin-right: 0.55rem;
+  color: var(--cobalt);
+}
+
+.prepare-error,
+.prepare-notice {
+  border-left: 3px solid var(--danger);
+  background: var(--paper-raised);
+  padding: 0.85rem 1rem;
+  line-height: 1.5;
+}
+
+.prepare-error {
+  margin-top: 1.5rem;
+  color: var(--danger);
+}
+
+.prepare-loading,
+.prepare-empty {
+  margin-top: 2rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.prepare-ledger {
+  padding-top: clamp(2rem, 4vw, 3.5rem);
+}
+
+.prepare-ledger-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.prepare-run-status,
+.prepare-source-status {
+  flex: none;
+  color: var(--faint);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prepare-run-complete {
+  color: var(--success);
+}
+
+.prepare-run-partial {
+  color: var(--warning);
+}
+
+.prepare-run-failed {
+  color: var(--danger);
+}
+
+.prepare-totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 1.5rem 0 0;
+  border-block: 1px solid var(--divider);
+}
+
+.prepare-totals div {
+  padding: 1rem 1rem 1rem 0;
+}
+
+.prepare-totals dt {
+  color: var(--faint);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prepare-totals dd {
+  margin: 0.25rem 0 0;
+  font: 400 1.5rem/1 var(--display);
+}
+
+.prepare-notice {
+  margin: 1rem 0 0;
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.prepare-source-list {
+  margin: 2rem 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--divider-strong);
+}
+
+.prepare-source {
+  padding: 1.15rem 0;
+  border-bottom: 1px solid var(--divider);
+}
+
+.prepare-source-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1.5rem;
+}
+
+.prepare-source-main strong,
+.prepare-source-main a {
+  display: block;
+}
+
+.prepare-source-main strong {
+  font-size: 1rem;
+}
+
+.prepare-source-main a {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 0.2rem;
+  overflow-wrap: anywhere;
+  color: var(--cobalt);
+  font-size: 0.82rem;
+}
+
+.prepare-source > p {
+  max-width: 55rem;
+  margin: 0.7rem 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.prepare-source > details summary {
+  width: fit-content;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.prepare-provenance {
+  margin: 1rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
+.prepare-provenance div {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: 1rem;
+  padding-block: 0.25rem;
+}
+
+.prepare-provenance dt {
+  color: var(--faint);
+}
+
+.prepare-provenance dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.prepare-origin-list {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prepare-origin-list li {
+  padding-block: 0.3rem;
+  font-size: 0.82rem;
+}
+
+.prepare-origin-list small {
+  display: block;
+  color: var(--faint);
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.prepare-origin-limit {
+  margin: 0.6rem 0 0;
+  color: var(--faint);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 48rem) {
+  .prepare-header,
+  .prepare-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .prepare-action-buttons {
+    justify-content: stretch;
+  }
+
+  .prepare-action-buttons button {
+    flex: 1 1 12rem;
+  }
+
+  .prepare-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .prepare-source-main {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+}
+
+@media (max-width: 28rem) {
+  .prepare-page {
+    padding: 1rem;
+  }
+
+  .prepare-header h1 {
+    font-size: 2.45rem;
+  }
+
+  .prepare-action-buttons,
+  .prepare-action-buttons button {
+    width: 100%;
+  }
+
+  .prepare-totals {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .prepare-provenance div {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+}

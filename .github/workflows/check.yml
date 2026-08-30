@@ -1,0 +1,42 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out companion
+        uses: actions/checkout@v4
+        with:
+          path: aisb-learning-companion
+
+      - name: Check out curriculum
+        uses: actions/checkout@v4
+        with:
+          repository: AI-Security-Bootcamp/aisb
+          path: aisb
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: aisb-learning-companion/.nvmrc
+          cache: npm
+          cache-dependency-path: aisb-learning-companion/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: aisb-learning-companion
+
+      - name: Run release checks
+        run: npm run check
+        working-directory: aisb-learning-companion
+        env:
+          AISB_REPO_PATH: ../aisb

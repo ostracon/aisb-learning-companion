@@ -1,0 +1,6 @@
+{
+  "package": "@openai/codex",
+  "version": "0.151.0",
+  "protocol": "app-server",
+  "experimental_bindings": true
+}
