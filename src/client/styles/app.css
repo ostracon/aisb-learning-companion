@@ -3154,6 +3154,14 @@ body {
   flex: 0 0 auto;
 }
 
+.review-start-over {
+  align-self: center;
+  min-height: 2rem;
+  margin-top: -0.35rem;
+  padding-inline: 0.5rem;
+  font-size: 0.7rem;
+}
+
 .review-progress {
   display: flex;
   align-items: center;

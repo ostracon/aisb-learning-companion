@@ -378,7 +378,10 @@ export function ReviewPanel({
   };
 
   const startAnotherSession = () => {
-    if (session) clearStoredReviewSessionId(scopeKey, session.sessionId);
+    if (session) {
+      clearStoredReviewSessionId(scopeKey, session.sessionId);
+      clearStoredReviewResponse(scopeKey, session.sessionId);
+    }
     setSession(null);
     setFeedbackHistory([]);
     setResponse("");
@@ -558,6 +561,11 @@ export function ReviewPanel({
           <button className="primary-button review-submit" type="button" disabled={busy || !response.trim()} onClick={() => void submit()}>
             {busy ? responseLocked ? "Resuming…" : "Recording…" : responseLocked ? "Resume saved response" : "Record response"}
           </button>
+          {!responseLocked ? (
+            <button className="text-button review-start-over" type="button" disabled={busy} onClick={startAnotherSession}>
+              Start over with new questions
+            </button>
+          ) : null}
         </>
       ) : (
         <div className="review-complete">

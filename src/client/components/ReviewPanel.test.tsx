@@ -386,6 +386,40 @@ describe("ReviewPanel", () => {
     expect(container.querySelector(".review-feedback .katex")).toBeTruthy();
   });
 
+  it("lets an unanswered saved question be replaced without retaining its local draft", async () => {
+    const scopeKey = "study:day1:1.1";
+    const activeSession = session();
+    const draftKey = reviewResponseDraftStorageKey(scopeKey, activeSession.sessionId);
+    window.localStorage.setItem(reviewSessionStorageKey(scopeKey), activeSession.sessionId);
+    window.localStorage.setItem(draftKey, JSON.stringify({
+      question_id: activeSession.currentQuestion!.questionId,
+      response: "Draft for the old question",
+      confidence: null,
+    }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ mode: "live-codex", session: activeSession }),
+    }));
+
+    render(
+      <ReviewPanel
+        scopeKey={scopeKey}
+        dayId="day1"
+        contextMode="study"
+        eventBindingId={null}
+        studySectionId="1.1"
+        outcomes={[choice]}
+      />,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Start over with new questions" }));
+
+    expect(screen.getByRole("button", { name: "Start active recall" })).toBeTruthy();
+    expect(window.localStorage.getItem(reviewSessionStorageKey(scopeKey))).toBeNull();
+    expect(window.localStorage.getItem(draftKey)).toBeNull();
+  });
+
   it("restores an unsent response and confidence, then clears them only after accepted submission", async () => {
     const scopeKey = "study:day1:1.1";
     const activeSession = session();
