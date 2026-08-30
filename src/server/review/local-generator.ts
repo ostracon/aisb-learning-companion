@@ -18,6 +18,18 @@ interface ReviewEnvelope {
   next_question_required?: boolean;
 }
 
+const MAX_LOCAL_OUTCOME_PREVIEW = 180;
+
+function compactOutcome(text: string): string {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  if (normalized.length <= MAX_LOCAL_OUTCOME_PREVIEW) return normalized;
+  const sentence = normalized.match(/^.{1,180}?[.!?](?:\s|$)/u)?.[0]?.trim();
+  if (sentence !== undefined) return sentence;
+  const clipped = normalized.slice(0, MAX_LOCAL_OUTCOME_PREVIEW - 1);
+  const lastSpace = clipped.lastIndexOf(" ");
+  return `${clipped.slice(0, Math.max(lastSpace, 1)).trimEnd()}\u2026`;
+}
+
 function parseEnvelope(prompt: string): ReviewEnvelope {
   const jsonStart = prompt.indexOf("{");
   if (jsonStart === -1) throw new Error("The local review envelope is unavailable");
@@ -29,15 +41,16 @@ function parseEnvelope(prompt: string): ReviewEnvelope {
 }
 
 function questionFor(outcome: EnvelopeOutcome, mode: string) {
+  const focus = compactOutcome(outcome.text);
   const prompt = mode === "scenario_application"
-    ? `Invent a small AI-security scenario where you would need to demonstrate this outcome, then explain your response: ${outcome.text}`
+    ? `Give one small AI-security scenario that tests this outcome, then state your response: ${focus}`
     : mode === "compare_contrast"
-      ? `Name a useful contrast or boundary that helps explain this outcome, then justify it: ${outcome.text}`
+      ? `Name one useful contrast that clarifies this outcome: ${focus}`
       : mode === "explain_back"
-        ? `Teach this outcome back in your own words, as if to a security colleague: ${outcome.text}`
+        ? `Explain this outcome to a security colleague in a few sentences: ${focus}`
         : mode === "short_answer"
-          ? `In two or three precise sentences, respond to this outcome: ${outcome.text}`
-          : `Without looking at your notes, explain what you remember about this outcome: ${outcome.text}`;
+          ? `Answer this outcome in two or three precise sentences: ${focus}`
+          : `Recall one key idea that demonstrates this outcome: ${focus}`;
   return { mode, prompt, outcome_ids: [outcome.outcome_id] };
 }
 

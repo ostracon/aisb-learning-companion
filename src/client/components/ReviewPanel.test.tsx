@@ -380,6 +380,7 @@ describe("ReviewPanel", () => {
 
     expect(await screen.findByRole("heading", { name: "Compare controls" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Nudge" })).toBeTruthy();
+    expect(screen.getByText("One focused memory dump · about 2 minutes")).toBeTruthy();
     expect(screen.getByText("ordering").tagName).toBe("STRONG");
     expect(container.querySelector(".review-question .katex")).toBeTruthy();
     expect(container.querySelector(".review-feedback .katex")).toBeTruthy();

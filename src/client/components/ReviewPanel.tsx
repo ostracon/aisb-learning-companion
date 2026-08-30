@@ -58,6 +58,14 @@ const modeDescriptions: Record<ReviewQuestionMode, string> = {
   scenario_application: "Apply the outcome to a concrete AI-security situation or decision.",
 };
 
+const modeAnswerScopes: Record<ReviewQuestionMode, string> = {
+  free_recall: "One focused memory dump · about 2 minutes",
+  short_answer: "Two or three precise sentences",
+  explain_back: "One concise explanation",
+  compare_contrast: "One clear distinction and why it matters",
+  scenario_application: "One decision and its rationale",
+};
+
 const reviewSessionStoragePrefix = "aisb-companion:review-session:";
 type ReviewConfidence = 1 | 2 | 3 | 4 | 5 | null;
 
@@ -501,7 +509,10 @@ export function ReviewPanel({
       {question ? (
         <>
           <div className="review-question" aria-live="polite" aria-atomic="true">
-            <span>{modeLabels[question.mode]}</span>
+            <div className="review-question-heading">
+              <span>{modeLabels[question.mode]}</span>
+              <small>{modeAnswerScopes[question.mode]}</small>
+            </div>
             <div className="markdown-reader review-rich-markdown">
               <SafeMarkdown
                 markdown={question.prompt}
@@ -511,7 +522,9 @@ export function ReviewPanel({
                 showRawHtmlSource
               />
             </div>
-            <small>{question.citations.map((citation) => citation.sourcePath).join(" · ")}</small>
+            <small className="review-question-citations">
+              {Array.from(new Set(question.citations.map((citation) => citation.sourcePath))).join(" · ")}
+            </small>
           </div>
           <label className="review-response-label" htmlFor="review-response">Your recall</label>
           <textarea

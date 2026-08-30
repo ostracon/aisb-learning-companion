@@ -26,6 +26,7 @@ const DEFAULT_QUESTION_LIMIT = 5;
 const MAX_QUESTION_LIMIT = 20;
 const MAX_SELECTED_OUTCOMES = 32;
 const MAX_LEARNER_RESPONSE_LENGTH = 64 * 1024;
+const MAX_REVIEW_QUESTION_LENGTH = 320;
 const REVIEW_ENVELOPE_SCHEMA = "aisb-learning-companion.review-turn.v1";
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
@@ -57,8 +58,8 @@ const CanonicalReviewOutcomeSchema = z
 const ModelQuestionSchema = z
   .object({
     mode: z.enum(REVIEW_QUESTION_MODES),
-    prompt: z.string().trim().min(1).max(4_000),
-    outcome_ids: z.array(SafeIdentifierSchema).min(1).max(MAX_SELECTED_OUTCOMES),
+    prompt: z.string().trim().min(1).max(MAX_REVIEW_QUESTION_LENGTH),
+    outcome_ids: z.array(SafeIdentifierSchema).length(1),
   })
   .strict()
   .refine((value) => new Set(value.outcome_ids).size === value.outcome_ids.length, {
@@ -1118,6 +1119,13 @@ function reviewPrompt(body: Readonly<Record<string, unknown>>): string {
       assessment: "advisory_only",
       filesystem_and_tools: "forbidden",
       unanswered_question_limit: 1,
+      question_contract: {
+        outcome_count: 1,
+        recall_target_count: 1,
+        maximum_prompt_characters: MAX_REVIEW_QUESTION_LENGTH,
+        expected_effort: "one compact answer in about two minutes",
+        compound_outcomes: "test one meaningful subskill, not the entire outcome at once",
+      },
     },
     ...body,
   };

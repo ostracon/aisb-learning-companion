@@ -321,6 +321,8 @@ describe("ReviewCoachService authorized question flow", () => {
       payloadHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
     });
     expect(previews[0]?.payload.prompt).toContain(OUTCOME_ONE.text);
+    expect(previews[0]?.payload.prompt).toContain('"recall_target_count":1');
+    expect(previews[0]?.payload.prompt).toContain('"maximum_prompt_characters":320');
     expect(previews[0]?.payload.prompt).not.toContain("answers.py");
     expect(previews[0]?.payload.outputSchema).toMatchObject({ type: "object" });
     expect(generator.requests[0]?.disclosure).toMatchObject({ decision: "allow_once" });
@@ -387,6 +389,34 @@ describe("ReviewCoachService authorized question flow", () => {
     await expect(
       extraService.startQuestion({ sessionId: extraSession.sessionId }),
     ).rejects.toMatchObject({ code: "invalid_model_output" });
+  });
+
+  it("rejects compound or overlong questions at the application boundary", async () => {
+    const compoundService = createService(new FakeGenerator(generation({
+      kind: "question",
+      question: {
+        mode: "free_recall",
+        prompt: "Explain both outcomes.",
+        outcome_ids: [OUTCOME_ONE.outcomeId, OUTCOME_TWO.outcomeId],
+      },
+    })));
+    const compoundSession = await compoundService.createSession({
+      canonicalOutcomes: [OUTCOME_ONE, OUTCOME_TWO],
+    });
+    await expect(compoundService.startQuestion({
+      sessionId: compoundSession.sessionId,
+    })).rejects.toMatchObject({ code: "invalid_model_output" });
+
+    const overlongService = createService(new FakeGenerator(generation(question(
+      OUTCOME_ONE.outcomeId,
+      "x".repeat(321),
+    ))));
+    const overlongSession = await overlongService.createSession({
+      canonicalOutcomes: [OUTCOME_ONE],
+    });
+    await expect(overlongService.startQuestion({
+      sessionId: overlongSession.sessionId,
+    })).rejects.toMatchObject({ code: "invalid_model_output" });
   });
 
   it("idempotently returns the one unanswered question when start is retried", async () => {

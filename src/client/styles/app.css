@@ -3172,13 +3172,32 @@ body {
   background: #eae7e0;
 }
 
-.review-question > span,
+.review-question-heading > span,
 .review-feedback > strong {
   color: var(--cobalt);
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.review-question-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.review-question-heading > small {
+  margin: 0;
+  color: var(--muted);
+  font: 0.62rem/1.35 var(--ui);
+}
+
+.review-question-citations {
+  padding-top: 0.15rem;
+  border-top: 1px solid var(--divider);
 }
 
 .review-question p,
