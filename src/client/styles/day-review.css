@@ -1,0 +1,125 @@
+.day-review-page {
+  width: min(78rem, calc(100% - 3rem));
+  height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 2rem 0 1.25rem;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  color: var(--ink);
+}
+
+.day-review-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 3rem;
+  padding-bottom: 1.4rem;
+  border-bottom: 1px solid var(--divider-strong);
+}
+
+.day-review-header > div { max-width: 52rem; }
+.day-review-header h1 {
+  margin: 0.2rem 0 0;
+  font: 500 clamp(2.6rem, 6vw, 5rem)/0.98 var(--display);
+  letter-spacing: -0.035em;
+}
+.day-review-header > div > p:last-child {
+  max-width: 48rem;
+  margin: 0.8rem 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.day-review-exit {
+  flex: none;
+  margin-top: 0.25rem;
+  color: var(--ink);
+  font-weight: 650;
+  text-decoration: none;
+}
+.day-review-exit:hover { color: var(--cobalt); }
+
+.day-review-focus {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.7fr) minmax(0, 2fr);
+  gap: 2rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--divider);
+}
+.day-review-focus h2 {
+  margin: 0.2rem 0 0;
+  font: 500 1.35rem/1.15 var(--display);
+}
+.day-review-mode-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-left: 1px solid var(--divider);
+}
+.day-review-mode-list button {
+  min-width: 0;
+  border: 0;
+  border-right: 1px solid var(--divider);
+  background: transparent;
+  color: var(--ink);
+  padding: 0.55rem 1rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.day-review-mode-list button:hover:not(:disabled) {
+  background: var(--cobalt-soft);
+  color: var(--cobalt);
+}
+.day-review-mode-list button:disabled { cursor: wait; opacity: 0.5; }
+.day-review-mode-list strong,
+.day-review-mode-list span { display: block; }
+.day-review-mode-list strong { font-size: 0.88rem; }
+.day-review-mode-list span {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.day-review-chat {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(10rem, 1fr) auto;
+}
+.day-review-transcript {
+  min-height: 0;
+  overflow: auto;
+  padding: 1.25rem 0;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.day-review-empty {
+  max-width: 40rem;
+  padding: clamp(1.5rem, 5vh, 3rem) 0;
+}
+.day-review-empty h2 {
+  margin: 0.35rem 0 0.65rem;
+  font: 500 clamp(1.8rem, 4vw, 3rem)/1.08 var(--display);
+}
+.day-review-empty p:last-child { color: var(--muted); line-height: 1.6; }
+.day-review-thinking {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--muted);
+  font-style: italic;
+}
+.day-review-thinking span {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 2px solid var(--divider-strong);
+  border-top-color: var(--cobalt);
+  border-radius: 50%;
+  animation: day-review-spin 800ms linear infinite;
+}
+@keyframes day-review-spin { to { transform: rotate(1turn); } }
+
+@media (max-width: 58rem) {
+  .day-review-page { width: min(100% - 1.25rem, 78rem); padding-top: 1rem; }
+  .day-review-focus { grid-template-columns: 1fr; gap: 0.75rem; }
+}

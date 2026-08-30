@@ -541,8 +541,8 @@ export class AppServerClient {
       const result = await this.#dynamicToolHandler?.(params);
       this.#write({ id, result });
     } catch {
-      // A failed visual proposal is a normal tool failure. It must not tear
-      // down an otherwise healthy tutor process or expose internal details.
+      // A failed application-owned tool call must not tear down an otherwise
+      // healthy Codex process or expose internal details.
       try {
         this.#write({
           id,
@@ -550,7 +550,7 @@ export class AppServerClient {
             success: false,
             contentItems: [{
               type: "inputText",
-              text: "The learning-visual brief could not be prepared. Continue with a prose explanation instead.",
+              text: "The requested local learning tool failed safely. Continue using the bounded context already available.",
             }],
           },
         });

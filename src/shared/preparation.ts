@@ -61,8 +61,17 @@ export interface PreparationSourceView {
   readonly contentHash: string | null;
   /** State-root-relative path. Never a browser-authored or absolute path. */
   readonly cachePath: string | null;
-  /** Present for HTML only. The projection is inert Markdown, never rendered HTML. */
+  /** Present when a verified inert text projection was published. */
   readonly markdownPath: string | null;
+  /** Additive metadata; absent only on preparation records written before text indexing. */
+  readonly textProjection?: {
+    readonly status: "complete" | "failed";
+    readonly extractor: "html-inert-v1" | "poppler-pdftotext";
+    readonly pageCount: number | null;
+    readonly byteLength: number | null;
+    readonly contentHash: string | null;
+    readonly detail: string;
+  };
   readonly redirects: readonly PreparationRedirectView[];
   readonly failureCode: PreparationFailureCode | null;
   readonly detail: string;

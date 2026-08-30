@@ -16,6 +16,10 @@ import type {
 import { PREPARATION_SCHEMA_VERSION } from "../../shared/preparation.js";
 import type { CurriculumMaterialManifest } from "../materials/service.js";
 import type { PublicWebFetchLimits, PublicWebFetchResult } from "./public-web-fetcher.js";
+import {
+  pdfToReferenceMarkdown,
+  type PdfTextExtractor,
+} from "./pdf-text-extractor.js";
 
 const HASH = /^sha256:[a-f0-9]{64}$/u;
 const SAFE_RUN_ID = /^[a-z0-9][a-z0-9_-]{0,79}$/u;
@@ -80,6 +84,14 @@ const sourceSchema = z.object({
   contentHash: z.string().regex(HASH).nullable(),
   cachePath: z.string().regex(CACHE_PATH).nullable(),
   markdownPath: z.string().regex(MARKDOWN_PATH).nullable(),
+  textProjection: z.object({
+    status: z.enum(["complete", "failed"]),
+    extractor: z.enum(["html-inert-v1", "poppler-pdftotext"]),
+    pageCount: z.number().int().positive().max(100_000).nullable(),
+    byteLength: z.number().int().nonnegative().nullable(),
+    contentHash: z.string().regex(HASH).nullable(),
+    detail: z.string().min(1).max(1_000),
+  }).strict().optional(),
   redirects: z.array(redirectSchema).max(16),
   failureCode: failureCodeSchema.nullable(),
   detail: z.string().min(1).max(1_000),
@@ -93,8 +105,33 @@ const sourceSchema = z.object({
     if (required.some((value) => value === null) || source.failureCode !== null) {
       context.addIssue({ code: "custom", message: "Cached sources require complete success provenance" });
     }
-    if ((source.mediaType === "html") !== (source.markdownPath !== null)) {
-      context.addIssue({ code: "custom", message: "Only cached HTML requires a Markdown projection" });
+    if (source.textProjection === undefined) {
+      if ((source.mediaType === "html") !== (source.markdownPath !== null)) {
+        context.addIssue({ code: "custom", message: "Legacy cached HTML requires a Markdown projection" });
+      }
+      return;
+    }
+    const projectionComplete = source.textProjection.status === "complete";
+    if (projectionComplete !== (source.markdownPath !== null)) {
+      context.addIssue({ code: "custom", message: "Completed text projections require a Markdown object" });
+    }
+    if (projectionComplete !== (
+      source.textProjection.byteLength !== null
+      && source.textProjection.contentHash !== null
+    )) {
+      context.addIssue({ code: "custom", message: "Text projection provenance is incomplete" });
+    }
+    if (
+      (projectionComplete && source.mediaType === "pdf" && source.textProjection.pageCount === null)
+      || ((source.mediaType === "html" || !projectionComplete) && source.textProjection.pageCount !== null)
+    ) {
+      context.addIssue({ code: "custom", message: "Completed PDF text projections alone record page counts" });
+    }
+    if (
+      (source.mediaType === "html" && source.textProjection.extractor !== "html-inert-v1")
+      || (source.mediaType === "pdf" && source.textProjection.extractor !== "poppler-pdftotext")
+    ) {
+      context.addIssue({ code: "custom", message: "Text projection extractor does not match the source media type" });
     }
     return;
   }
@@ -105,6 +142,7 @@ const sourceSchema = z.object({
     || source.contentHash !== null
     || source.cachePath !== null
     || source.markdownPath !== null
+    || source.textProjection !== undefined
   ) {
     context.addIssue({ code: "custom", message: "Uncached sources cannot claim cache provenance" });
   }
@@ -149,6 +187,7 @@ const runSchema = z.object({
   const cachedCount = run.sources.filter(({ status }) => status === "cached").length;
   const failedCount = run.sources.filter(({ status }) => status === "failed" || status === "unsupported").length;
   const notFetchedCount = run.sources.filter(({ status }) => status === "not_fetched").length;
+  const projectionFailed = run.sources.some(({ textProjection }) => textProjection?.status === "failed");
   const rawCachedBytes = run.sources.reduce((total, source) =>
     total + (source.status === "cached" ? source.byteLength ?? 0 : 0), 0);
   const cachedBytes = rawCachedBytes + run.generatedMarkdownBytes;
@@ -180,7 +219,7 @@ const runSchema = z.object({
   // run partial rather than falsely complete.
   const inferredCacheRun = cachedCount + failedCount > 0;
   const incompleteCacheRun = inferredCacheRun && (notFetchedCount > 0 || run.inventoryTruncated);
-  const expectedStatus = failedCount === 0 && !incompleteCacheRun
+  const expectedStatus = failedCount === 0 && !incompleteCacheRun && !projectionFailed
     ? "complete"
     : cachedCount > 0
       ? "partial"
@@ -211,6 +250,7 @@ export interface PreparationServiceDependencies {
   readonly manifests: PreparationManifestSource;
   readonly fetcher: PreparationFetcher;
   readonly store: PreparationRunStore;
+  readonly pdfTextExtractor?: PdfTextExtractor;
   readonly limits?: Partial<PreparationLimitsView>;
   readonly now?: () => Date;
   readonly createId?: () => string;
@@ -533,12 +573,21 @@ export class PreparationService {
         continue;
       }
       let markdownBytes: Buffer | null = null;
+      let textProjection: PreparationSourceView["textProjection"];
       if (result.mediaType === "html") {
         try {
           markdownBytes = Buffer.from(
             htmlToReferenceMarkdown(result.bytes, result.finalUrl),
             "utf8",
           );
+          textProjection = Object.freeze({
+            status: "complete" as const,
+            extractor: "html-inert-v1" as const,
+            pageCount: null,
+            byteLength: markdownBytes.byteLength,
+            contentHash: `sha256:${sha256(markdownBytes)}`,
+            detail: "Published an inert Markdown projection of the fetched HTML.",
+          });
         } catch (error) {
           if (signal.aborted) throw new PreparationShuttingDownError();
           sources.push(failedSource(source, {
@@ -552,6 +601,36 @@ export class PreparationService {
             redirects: result.redirects,
           }));
           continue;
+        }
+      } else if (this.dependencies.pdfTextExtractor !== undefined) {
+        try {
+          const extraction = await this.dependencies.pdfTextExtractor.extract(result.bytes, signal);
+          markdownBytes = Buffer.from(pdfToReferenceMarkdown(
+            extraction,
+            result.finalUrl,
+            result.contentHash,
+            source.origins[0]?.label ?? new URL(result.finalUrl).hostname,
+          ), "utf8");
+          textProjection = Object.freeze({
+            status: "complete" as const,
+            extractor: extraction.extractor,
+            pageCount: extraction.pages.length,
+            byteLength: markdownBytes.byteLength,
+            contentHash: `sha256:${sha256(markdownBytes)}`,
+            detail: `Published deterministic page-aware text for ${extraction.pages.length} PDF page${extraction.pages.length === 1 ? "" : "s"}.`,
+          });
+        } catch (error) {
+          if (signal.aborted || error instanceof PreparationShuttingDownError) {
+            throw new PreparationShuttingDownError();
+          }
+          textProjection = Object.freeze({
+            status: "failed" as const,
+            extractor: "poppler-pdftotext" as const,
+            pageCount: null,
+            byteLength: null,
+            contentHash: null,
+            detail: "The PDF bytes were cached, but deterministic text extraction failed safely.",
+          });
         }
       }
       const storedByteLength = result.bytes.byteLength + (markdownBytes?.byteLength ?? 0);
@@ -615,17 +694,23 @@ export class PreparationService {
         contentHash: result.contentHash,
         cachePath,
         markdownPath,
+        ...(textProjection === undefined ? {} : { textProjection }),
         redirects: result.redirects,
         failureCode: null,
-        detail: result.mediaType === "html"
-          ? "Cached immutable source bytes and an inert Markdown text projection."
-          : "Cached immutable PDF bytes; text extraction is not enabled in this version.",
+        detail: textProjection?.status === "complete"
+          ? result.mediaType === "html"
+            ? "Cached immutable source bytes and an inert Markdown text projection."
+            : `Cached immutable PDF bytes and indexed ${textProjection.pageCount ?? 0} pages of deterministic text.`
+          : result.mediaType === "pdf"
+            ? "Cached immutable PDF bytes; deterministic text extraction failed safely."
+            : "Cached immutable source bytes.",
       }));
     }
 
     const cachedCount = sources.filter(({ status }) => status === "cached").length;
     const failedCount = sources.filter(({ status }) => status === "failed" || status === "unsupported").length;
     const notFetchedCount = sources.filter(({ status }) => status === "not_fetched").length;
+    const projectionFailed = sources.some(({ textProjection }) => textProjection?.status === "failed");
     const incompleteCacheRun = fetchSources
       && (notFetchedCount > 0 || allSources.length > recorded.length);
     const run: PreparationRunView = Object.freeze({
@@ -633,7 +718,7 @@ export class PreparationService {
       runId: this.#createId(),
       startedAt,
       completedAt: this.#now().toISOString(),
-      status: failedCount === 0 && !incompleteCacheRun
+      status: failedCount === 0 && !incompleteCacheRun && !projectionFailed
         ? "complete"
         : cachedCount > 0
           ? "partial"

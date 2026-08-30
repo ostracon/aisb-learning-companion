@@ -37,7 +37,11 @@ function sourceLabel(source: PreparationSourceView): string {
 
 function sourceStatus(source: PreparationSourceView): string {
   if (source.status === "cached") {
-    const kind = source.mediaType === "html" ? "HTML + Markdown" : "PDF";
+    const kind = source.mediaType === "html"
+      ? "HTML + Markdown"
+      : source.textProjection?.status === "complete"
+        ? `PDF + ${source.textProjection.pageCount ?? 0} indexed pages`
+        : "PDF · text unavailable";
     return `${kind} · ${(source.byteLength ?? 0).toLocaleString()} bytes`;
   }
   if (source.status === "not_fetched") return "Inventory only";
@@ -63,6 +67,12 @@ function SourceRow({ source }: { readonly source: PreparationSourceView }) {
           {source.contentHash ? <div><dt>Content hash</dt><dd>{source.contentHash}</dd></div> : null}
           {source.cachePath ? <div><dt>Cached bytes</dt><dd>{source.cachePath}</dd></div> : null}
           {source.markdownPath ? <div><dt>Text projection</dt><dd>{source.markdownPath}</dd></div> : null}
+          {source.textProjection ? (
+            <div>
+              <dt>Extraction</dt>
+              <dd>{source.textProjection.detail}</dd>
+            </div>
+          ) : null}
           {source.finalUrl && source.finalUrl !== source.requestedUrl
             ? <div><dt>Final URL</dt><dd>{source.finalUrl}</dd></div>
             : null}

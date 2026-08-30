@@ -71,6 +71,11 @@ const ManagerPage = lazy(async () => {
   return { default: module.ManagerPage };
 });
 
+const DayReviewPage = lazy(async () => {
+  const module = await import("./components/DayReviewPage.js");
+  return { default: module.DayReviewPage };
+});
+
 const VisualAidPage = lazy(async () => {
   const module = await import("./components/VisualAidPage.js");
   return { default: module.VisualAidPage };
@@ -695,6 +700,7 @@ function AppRoutes({ data }: { data: BootstrapResponse }) {
       <Route path="/" element={<WorkspacePage {...workspaceProps} autoOrient />} />
       <Route path="/day/:dayId" element={<WorkspacePage {...workspaceProps} />} />
       <Route path="/day/:dayId/event/:eventId" element={<WorkspacePage {...workspaceProps} />} />
+      <Route path="/day/:dayId/review" element={<DeferredRoute><DayReviewPage /></DeferredRoute>} />
       <Route path="/notes/:noteId" element={<WorkspacePage {...workspaceProps} />} />
       <Route path="/study/:dayId" element={<WorkspacePage {...workspaceProps} viewMode="study" />} />
       <Route path="/study/:dayId/section/:sectionId" element={<WorkspacePage {...workspaceProps} viewMode="study" />} />
@@ -1754,6 +1760,15 @@ function WorkspacePage({
                 ? `${formatEventTime(selectedEvent.start)}–${formatEventTime(selectedEvent.end)} · ${selectedDay.title}${selectedEventBinding ? ` · ${selectedEventBinding.sectionIds.join(", ")}` : " · material not linked"}`
                 : `${learningEvents.length} learning sessions${mealEvents.length > 0 ? ` · ${mealEvents.length} meal breaks hidden` : ""} · Europe/London`}
             </p>
+            {!isStudy && selectedEvent === null ? (
+              <div className="day-review-entry">
+                <div>
+                  <strong>Review the whole day</strong>
+                  <span>Use the schedule, outcomes, notes, material, prepared references, and prior learning history.</span>
+                </div>
+                <Link className="primary-button" to={`/day/${selectedDayId}/review`}>Review day →</Link>
+              </div>
+            ) : null}
             <div className="rule" />
 
             {!isStudy ? <section className="schedule-section" aria-labelledby="schedule-heading">

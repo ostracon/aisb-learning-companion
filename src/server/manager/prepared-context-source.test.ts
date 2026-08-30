@@ -144,6 +144,51 @@ describe("FilePreparedReferenceContextSource", () => {
       .toBeLessThanOrEqual(MAX_TUTOR_PREPARED_TOTAL_BYTES);
     expect(references.every(({ truncated }) => truncated)).toBe(true);
   });
+
+  it("inventories and reads a verified page-aware PDF projection by opaque source ID", async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), "aisb-prepared-day-review-"));
+    const markdown = "# Paper\n\n## Page 1\n\nFirst page.\n\n## Page 2\n\nSecond page.";
+    const markdownPath = await writeProjection(stateRoot, markdown);
+    const projectionHash = `sha256:${createHash("sha256").update(markdown).digest("hex")}`;
+    const base = runWithMarkdown(markdownPath, `sha256:${"b".repeat(64)}`);
+    const sourceId = `source_${"a".repeat(64)}`;
+    const run: PreparationRunView = {
+      ...base,
+      sources: [{
+        ...base.sources[0]!,
+        sourceId,
+        requestedUrl: "https://example.com/paper.pdf",
+        finalUrl: "https://example.com/paper.pdf",
+        mediaType: "pdf",
+        cachePath: `preparation/cache/sha256/bb/${"b".repeat(64)}.pdf`,
+        markdownPath,
+        textProjection: {
+          status: "complete",
+          extractor: "poppler-pdftotext",
+          pageCount: 2,
+          byteLength: Buffer.byteLength(markdown),
+          contentHash: projectionHash,
+          detail: "Published deterministic page-aware text for 2 PDF pages.",
+        },
+      }],
+    };
+    const source = sourceFor(stateRoot, run);
+
+    const inventory = await source.listForSections(["1.1"]);
+    expect(inventory).toEqual([expect.objectContaining({
+      sourceId,
+      mediaType: "pdf",
+      projectionStatus: "complete",
+      projectionContentHash: projectionHash,
+      pageCount: 2,
+      sectionIds: ["1.1"],
+    })]);
+    await expect(source.readProjectionForSections(sourceId, ["2.1"])).resolves.toBeNull();
+    await expect(source.readProjectionForSections("/tmp/paper.pdf", ["1.1"]))
+      .rejects.toThrow("ID is invalid");
+    await expect(source.readProjectionForSections(sourceId, ["1.1"]))
+      .resolves.toMatchObject({ markdown, pageCount: 2, projectionContentHash: projectionHash });
+  });
 });
 
 function sourceFor(

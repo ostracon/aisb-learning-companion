@@ -15,6 +15,7 @@ import {
   type PreparationRunStore,
 } from "./service.js";
 import type { PreparationRunView } from "../../shared/preparation.js";
+import { pdfToReferenceMarkdown } from "./pdf-text-extractor.js";
 
 function manifest(
   sectionId: string,
@@ -145,6 +146,95 @@ describe("PreparationService", () => {
     expect(run.generatedMarkdownBytes).toBe(Buffer.byteLength(markdown));
     expect(run.totalCachedBytes).toBe(bytes.byteLength + Buffer.byteLength(markdown));
     await expect(service.state()).resolves.toMatchObject({ latestRun: { runId: "prep_cache" } });
+  });
+
+  it("indexes cached PDF text by page with immutable projection provenance", async () => {
+    const store = new MemoryStore();
+    const bytes = Buffer.from("%PDF-1.7 learner-visible fixture");
+    const service = new PreparationService({
+      manifests: { async readManifests() { return [manifest("1.4", [{ label: "Paper", url: "https://example.com/paper.pdf" }])]; } },
+      fetcher: {
+        async fetch(url) {
+          return {
+            ok: true as const,
+            requestedUrl: url,
+            finalUrl: url,
+            mediaType: "pdf" as const,
+            bytes,
+            contentHash: "sha256:1f06483c43b248b353935855d38298b33953cc2a2fdd552b5080fe6fe836f0d5",
+            redirects: [],
+          };
+        },
+      },
+      pdfTextExtractor: {
+        async extract() {
+          return {
+            extractor: "poppler-pdftotext" as const,
+            pages: [
+              { pageNumber: 1, text: "First page." },
+              { pageNumber: 2, text: "Second page." },
+            ],
+          };
+        },
+      },
+      store,
+      now: () => new Date("2026-08-30T10:00:00.000Z"),
+      createId: () => "prep_pdf_index",
+    });
+
+    const run = await service.start(true);
+
+    expect(store.objects.map(({ extension }) => extension)).toEqual(["pdf", "md"]);
+    expect(run.sources[0]).toMatchObject({
+      status: "cached",
+      mediaType: "pdf",
+      textProjection: {
+        status: "complete",
+        extractor: "poppler-pdftotext",
+        pageCount: 2,
+      },
+    });
+    const markdown = new TextDecoder().decode(store.objects[1]?.bytes);
+    expect(markdown).toContain("## Page 1\n\nFirst page.");
+    expect(markdown).toContain("## Page 2\n\nSecond page.");
+    expect(markdown).toContain("https://example.com/paper.pdf");
+    expect(markdown).toContain(run.sources[0]?.contentHash);
+  });
+
+  it("keeps PDF bytes when text extraction fails safely", async () => {
+    const store = new MemoryStore();
+    const bytes = Buffer.from("%PDF-1.7 fixture");
+    const service = new PreparationService({
+      manifests: { async readManifests() { return [manifest("1.4", [{ label: "Paper", url: "https://example.com/paper.pdf" }])]; } },
+      fetcher: {
+        async fetch(url) {
+          return {
+            ok: true as const,
+            requestedUrl: url,
+            finalUrl: url,
+            mediaType: "pdf" as const,
+            bytes,
+            contentHash: "sha256:9152d28d983c3e6533ec5863f2dc3cb7e0a45d6c7461463f39aac32332fbd107",
+            redirects: [],
+          };
+        },
+      },
+      pdfTextExtractor: { async extract() { throw new Error("broken PDF"); } },
+      store,
+      now: () => new Date("2026-08-30T10:00:00.000Z"),
+      createId: () => "prep_pdf_failed_projection",
+    });
+
+    const run = await service.start(true);
+
+    expect(store.objects.map(({ extension }) => extension)).toEqual(["pdf"]);
+    expect(run.sources[0]).toMatchObject({
+      status: "cached",
+      mediaType: "pdf",
+      markdownPath: null,
+      textProjection: { status: "failed", pageCount: null, contentHash: null },
+    });
+    expect(run.status).toBe("partial");
   });
 
   it("marks a bounded cache run partial when discovered sources are skipped", async () => {
@@ -419,6 +509,22 @@ describe("PreparationService", () => {
     await expect(active).rejects.toBeInstanceOf(PreparationShuttingDownError);
     expect(store.run).toBeNull();
     await expect(service.start(false)).rejects.toBeInstanceOf(PreparationShuttingDownError);
+  });
+});
+
+describe("pdfToReferenceMarkdown", () => {
+  it("preserves page order and labels pages without interpreting extracted text", () => {
+    const markdown = pdfToReferenceMarkdown({
+      extractor: "poppler-pdftotext",
+      pages: [
+        { pageNumber: 1, text: "One" },
+        { pageNumber: 2, text: "<script>still inert text</script>" },
+      ],
+    }, "https://example.com/paper.pdf", "sha256:abc", "Paper");
+
+    expect(markdown.indexOf("## Page 1")).toBeLessThan(markdown.indexOf("## Page 2"));
+    expect(markdown).toContain("<script>still inert text</script>");
+    expect(markdown).toContain("Source bytes: sha256:abc");
   });
 });
 

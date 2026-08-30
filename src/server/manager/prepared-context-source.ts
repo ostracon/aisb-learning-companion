@@ -31,10 +31,47 @@ interface VerifiedMarkdown {
   readonly contentHash: string;
 }
 
-/** Safely exposes cached inert Markdown—not raw HTML/PDF—to manager context. */
+export interface PreparedReferenceInventoryItem {
+  readonly sourceId: string;
+  readonly title: string;
+  readonly requestedUrl: string;
+  readonly finalUrl: string | null;
+  readonly status: "cached" | "not_fetched" | "unsupported" | "failed";
+  readonly mediaType: "html" | "pdf" | null;
+  readonly sourceContentHash: string | null;
+  readonly projectionContentHash: string | null;
+  readonly projectionStatus: "complete" | "failed" | "unavailable";
+  readonly pageCount: number | null;
+  readonly detail: string;
+  readonly sectionIds: readonly string[];
+}
+
+export interface PreparedReferenceProjection {
+  readonly sourceId: string;
+  readonly title: string;
+  readonly requestedUrl: string;
+  readonly finalUrl: string;
+  readonly sourceContentHash: string;
+  readonly projectionContentHash: string;
+  readonly mediaType: "html" | "pdf";
+  readonly pageCount: number | null;
+  readonly markdown: string;
+  readonly sectionIds: readonly string[];
+}
+
+export interface DayPreparedReferenceSource {
+  listForSections(sectionIds: readonly string[]): Promise<readonly PreparedReferenceInventoryItem[]>;
+  readProjectionForSections(
+    sourceId: string,
+    sectionIds: readonly string[],
+  ): Promise<PreparedReferenceProjection | null>;
+}
+
+/** Safely exposes verified inert text projections—not raw HTML/PDF—to model context. */
 export class FilePreparedReferenceContextSource implements
   ManagerPreparationContextSource,
-  ScopedPreparedReferenceContextSource {
+  ScopedPreparedReferenceContextSource,
+  DayPreparedReferenceSource {
   readonly #stateRoot: string;
   readonly #cacheRoot: string;
 
@@ -84,9 +121,9 @@ export class FilePreparedReferenceContextSource implements
   }
 
   /**
-   * Returns only verified inert Markdown whose recorded manifest origins overlap
+   * Returns only verified inert text whose recorded manifest origins overlap
    * the fresh server-resolved tutor section set. Raw HTML and PDF bytes never
-   * cross this boundary.
+   * cross this boundary; PDF projections preserve page-number headings.
    */
   public async readForSections(
     sectionIds: readonly string[],
@@ -112,7 +149,6 @@ export class FilePreparedReferenceContextSource implements
       if (references.length >= MAX_TUTOR_PREPARED_REFERENCES) break;
       if (
         source.status !== "cached"
-        || source.mediaType !== "html"
         || source.markdownPath === null
         || source.contentHash === null
         || source.fetchedAt === null
@@ -157,6 +193,87 @@ export class FilePreparedReferenceContextSource implements
     return Object.freeze(references);
   }
 
+  public async listForSections(
+    sectionIds: readonly string[],
+  ): Promise<readonly PreparedReferenceInventoryItem[]> {
+    const requestedSections = validateSectionScope(sectionIds);
+    if (requestedSections.size === 0) return Object.freeze([]);
+    const run = (await this.preparation.state()).latestRun;
+    if (run === null) return Object.freeze([]);
+    return Object.freeze(run.sources.flatMap((source) => {
+      const matchingSections = [...new Set(source.origins
+        .map(({ sectionId }) => sectionId)
+        .filter((sectionId) => requestedSections.has(sectionId)))].sort();
+      if (matchingSections.length === 0) return [];
+      const legacyProjectionHash = source.markdownPath === null
+        ? null
+        : `sha256:${basename(source.markdownPath, ".md")}`;
+      return [Object.freeze({
+        sourceId: source.sourceId,
+        title: source.origins.find(({ sectionId }) => requestedSections.has(sectionId))?.label
+          ?? new URL(source.requestedUrl).hostname,
+        requestedUrl: source.requestedUrl,
+        finalUrl: source.finalUrl,
+        status: source.status,
+        mediaType: source.mediaType,
+        sourceContentHash: source.contentHash,
+        projectionContentHash: source.textProjection?.contentHash ?? legacyProjectionHash,
+        projectionStatus: source.markdownPath !== null
+          ? "complete" as const
+          : source.textProjection?.status === "failed"
+            ? "failed" as const
+            : "unavailable" as const,
+        pageCount: source.textProjection?.pageCount ?? null,
+        detail: source.detail,
+        sectionIds: Object.freeze(matchingSections),
+      })];
+    }));
+  }
+
+  public async readProjectionForSections(
+    sourceId: string,
+    sectionIds: readonly string[],
+  ): Promise<PreparedReferenceProjection | null> {
+    if (!/^source_[a-f0-9]{64}$/u.test(sourceId)) {
+      throw new Error("Prepared reference ID is invalid");
+    }
+    const requestedSections = validateSectionScope(sectionIds);
+    if (requestedSections.size === 0) return null;
+    const run = (await this.preparation.state()).latestRun;
+    const source = run?.sources.find((candidate) => candidate.sourceId === sourceId);
+    if (
+      source === undefined
+      || source.status !== "cached"
+      || source.mediaType === null
+      || source.contentHash === null
+      || source.finalUrl === null
+      || source.markdownPath === null
+    ) return null;
+    const matchingSections = [...new Set(source.origins
+      .map(({ sectionId }) => sectionId)
+      .filter((sectionId) => requestedSections.has(sectionId)))].sort();
+    if (matchingSections.length === 0) return null;
+    const verified = await this.#readVerifiedMarkdown(source.markdownPath);
+    const recordedProjectionHash = source.textProjection?.contentHash;
+    if (recordedProjectionHash !== undefined && recordedProjectionHash !== null
+      && recordedProjectionHash !== verified.contentHash) {
+      throw new Error("Prepared reference projection provenance changed");
+    }
+    return Object.freeze({
+      sourceId: source.sourceId,
+      title: source.origins.find(({ sectionId }) => requestedSections.has(sectionId))?.label
+        ?? new URL(source.requestedUrl).hostname,
+      requestedUrl: source.requestedUrl,
+      finalUrl: source.finalUrl,
+      sourceContentHash: source.contentHash,
+      projectionContentHash: verified.contentHash,
+      mediaType: source.mediaType,
+      pageCount: source.textProjection?.pageCount ?? null,
+      markdown: verified.markdown,
+      sectionIds: Object.freeze(matchingSections),
+    });
+  }
+
   async #readVerifiedMarkdown(logicalPath: string): Promise<VerifiedMarkdown> {
     if (!MARKDOWN_PATH.test(logicalPath)) {
       throw new Error("Prepared reference path is invalid");
@@ -183,6 +300,20 @@ export class FilePreparedReferenceContextSource implements
       contentHash: `sha256:${actualHash}`,
     });
   }
+}
+
+function validateSectionScope(sectionIds: readonly string[]): ReadonlySet<string> {
+  if (!Array.isArray(sectionIds) || sectionIds.length > 32) {
+    throw new Error("Prepared reference section scope is invalid");
+  }
+  const requestedSections = new Set<string>();
+  for (const sectionId of sectionIds) {
+    if (typeof sectionId !== "string" || !SECTION_ID.test(sectionId)) {
+      throw new Error("Prepared reference section scope is invalid");
+    }
+    requestedSections.add(sectionId);
+  }
+  return requestedSections;
 }
 
 function isWithin(root: string, target: string): boolean {

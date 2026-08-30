@@ -186,4 +186,60 @@ describe("ManagerService", () => {
     expect(gateway.runTurn).not.toHaveBeenCalled();
     await service.close();
   });
+
+  it("keeps each whole-day review in a distinct durable scope and native thread", async () => {
+    const stateRoot = await mkdtemp(join(tmpdir(), "aisb-day-manager-"));
+    const sessionStore = new TutorSessionLogStore(stateRoot);
+    let threadSequence = 0;
+    const gateway: ManagerGatewayPort = {
+      isInstructionVerified: () => true,
+      startThread: vi.fn(async () => ({ thread: { id: `day-thread:${++threadSequence}` } })),
+      resumeThread: vi.fn(async ({ threadId }) => ({ thread: { id: threadId } })),
+      recoverTurnByClientMessageId: vi.fn(async () => null),
+      runTurn: vi.fn(async (input) => ({
+        threadId: input.threadId,
+        turnId: `turn:${input.threadId}`,
+        text: "One focused review move.",
+      })),
+    };
+    const config = {
+      companionRoot: "/companion",
+      aisbRoot: "/aisb",
+      stateRoot,
+      host: "127.0.0.1",
+      port: 7575,
+      mode: "test",
+      imageGenerationAvailable: false,
+      codexExecutable: "/codex",
+    } satisfies RuntimeConfig;
+    const connect = async () => ({ client: { close() {} }, gateway });
+    const dayRetrieval = {} as never;
+    const day1 = new ManagerService(
+      config,
+      { build: async () => ({ schema: "day1-map" }) },
+      sessionStore,
+      undefined,
+      connect,
+      null,
+      { dayId: "day1", dayReviewRetrieval: dayRetrieval },
+    );
+    const day2 = new ManagerService(
+      config,
+      { build: async () => ({ schema: "day2-map" }) },
+      sessionStore,
+      undefined,
+      connect,
+      null,
+      { dayId: "day2", dayReviewRetrieval: dayRetrieval },
+    );
+
+    const first = await day1.runTurn({ clientUserMessageId: "day1:message:1", message: "Review Day 1" });
+    const second = await day2.runTurn({ clientUserMessageId: "day2:message:1", message: "Review Day 2" });
+    expect(first.threadId).not.toBe(second.threadId);
+    expect((await sessionStore.readScope("manager:day:day1"))?.messages).toHaveLength(2);
+    expect((await sessionStore.readScope("manager:day:day2"))?.messages).toHaveLength(2);
+    expect(await sessionStore.readScope("manager:overall")).toBeNull();
+    await day1.close();
+    await day2.close();
+  });
 });

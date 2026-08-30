@@ -79,10 +79,14 @@ import { CurriculumPreparationManifestSource } from "./preparation/manifest-sour
 import { PinnedPublicWebFetcher } from "./preparation/public-web-fetcher.js";
 import { registerPreparationRoutes } from "./preparation/routes.js";
 import { FilePreparationRunStore, PreparationService } from "./preparation/service.js";
+import { PopplerPdfTextExtractor } from "./preparation/pdf-text-extractor.js";
 import { ManagerContextService } from "./manager/context-service.js";
 import { FilePreparedReferenceContextSource } from "./manager/prepared-context-source.js";
 import { registerManagerRoutes } from "./manager/routes.js";
 import { ManagerService } from "./manager/service.js";
+import { DayReviewRetrievalService } from "./day-review/retrieval-service.js";
+import { DayReviewContextService } from "./day-review/context-service.js";
+import { registerDayReviewRoutes } from "./day-review/routes.js";
 import { registerVisualAidRoutes } from "./images/routes.js";
 import {
   OpenAIVisualImageProvider,
@@ -109,6 +113,7 @@ const preparationService = new PreparationService({
   manifests: new CurriculumPreparationManifestSource(curriculumService, curriculumMaterialService),
   fetcher: new PinnedPublicWebFetcher(),
   store: new FilePreparationRunStore(config.stateRoot),
+  pdfTextExtractor: new PopplerPdfTextExtractor(),
 });
 const diagnosticsService = new DiagnosticsService(config);
 const codexSelfTestService = new CodexSelfTestService(config);
@@ -172,6 +177,35 @@ const managerService = new ManagerService(
   undefined,
   visualAidService,
 );
+const dayReviewRetrievalService = new DayReviewRetrievalService({
+  schedule: scheduleStore,
+  curriculum: curriculumService,
+  notes: noteStore,
+  materials: curriculumMaterialService,
+  preparedReferences: preparedReferenceContextSource,
+  tutorHistory: tutorSessionLogStore,
+  reviewHistory: reviewSessionStore,
+  continuity: continuitySummaryStore,
+});
+const learningDayIds = ["day0", "day1", "day2", "day3", "day4", "day5", "day6", "day7"] as const;
+const dayReviewServices = new Map(learningDayIds.map((dayId) => [
+  dayId,
+  new ManagerService(
+    config,
+    new DayReviewContextService(
+      dayId,
+      scheduleStore,
+      curriculumService,
+      learningProgressService,
+      dayReviewRetrievalService,
+    ),
+    tutorSessionLogStore,
+    tutorThreadBindingStore,
+    undefined,
+    visualAidService,
+    { dayId, dayReviewRetrieval: dayReviewRetrievalService },
+  ),
+] as const));
 const backupExportService = new BackupExportService(config.stateRoot);
 const repositoryStateReader = new GitWorkspaceRepositoryStateReader();
 const workspaceLaunchService = new WorkspaceLaunchService(config.aisbRoot, {
@@ -1170,6 +1204,7 @@ app.post("/api/tutor/turns", async (request, reply) => {
 
 registerPreparationRoutes(app, preparationService);
 registerManagerRoutes(app, managerService);
+registerDayReviewRoutes(app, dayReviewServices);
 registerVisualAidRoutes(app, visualAidService);
 registerBackupRoutes(app, backupExportService);
 
@@ -1294,6 +1329,7 @@ app.setErrorHandler(async (error, _request, reply) => {
 });
 
 app.addHook("onClose", async () => {
+  await Promise.all([...dayReviewServices.values()].map(async (service) => await service.close()));
   await managerService.close();
   await tutorService.close();
   await reviewCoachService.close();
@@ -1333,6 +1369,7 @@ installSignalShutdown(async () => {
   preparationService.beginShutdown();
   visualAidService.beginShutdown();
   const interrupted = await Promise.allSettled([
+    ...[...dayReviewServices.values()].map(async (service) => await service.close()),
     managerService.close(),
     tutorService.close(),
     reviewCoachService.close(),

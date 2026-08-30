@@ -16,6 +16,7 @@ You need:
 - macOS;
 - Git;
 - Node.js 22.12 or newer, with npm;
+- Poppler's `pdftotext`, for page-aware PDF reference preparation;
 - a local checkout of the AISB repository;
 - a Codex sign-in that works on this Mac; and
 - access to the `gpt-5.6-sol` model.
@@ -99,6 +100,18 @@ npm ci
 The lockfile pins the app's dependencies, including the Codex CLI used by the
 backend. You do not need a separate global Codex installation.
 
+Install Poppler so the preparation run can turn cached papers into searchable,
+page-numbered text:
+
+```bash
+brew install poppler
+pdftotext -v
+```
+
+If `pdftotext` is unavailable or cannot parse a particular PDF, the app keeps
+the verified PDF bytes and reports that its text projection is unavailable. It
+does not silently send the PDF to another service.
+
 ### 4. Check the Codex sign-in
 
 ```bash
@@ -154,6 +167,25 @@ review that brief and the exact prompt. The assistant cannot generate an image
 or incur image-generation usage by itself: you must select **Generate this
 visual** separately.
 
+## Whole-day review
+
+Open a day in **Today**, then select **Review the whole day**. Each programme
+day has its own restart-resumable review conversation. Start with a concise
+recap, one active-recall question at a time, a likely knowledge gap, or your own
+request.
+
+The assistant first receives a small map of that day's schedule, sections,
+outcomes, progress, and available sources. It can then search and read bounded
+parts of that day's notes, learner-visible curriculum, prepared HTML/PDF text,
+prior tutor excerpts, advisory review summaries, and approved continuity. Tool
+results include citations and provenance. The server fixes the day scope and
+accepts only opaque resource IDs; arbitrary paths, URLs, protected folds,
+solutions, and code-answer files are not available to this review.
+
+Run **Prepare references** again after upgrading if you want existing cached
+PDFs indexed into page-numbered text. Preparation remains an explicit action;
+opening a review never fetches the network or processes a PDF.
+
 ## Configuration
 
 All settings are optional when the two repositories are siblings.
@@ -204,7 +236,8 @@ Important paths include:
 - `schedule/schedule.json` — the editable imported schedule;
 - `progress/` — checked learning outcomes and progress state;
 - `continuity/` — learner-approved continuity summaries;
-- `tutor/sessions/sessions.jsonl` — the inspectable tutor transcript;
+- `tutor/sessions/sessions.jsonl` — the inspectable tutor, manager, and
+  whole-day-review transcript;
 - `review/` — review-session state;
 - `preparation/` — cached reference material and preparation records; and
 - `media/visuals/` — generated learning images and their provenance.
@@ -297,6 +330,12 @@ Run:
 
 Sign in if needed, restart the app, and use the app's **Local diagnostics**
 page to check the account, model, and restricted permission profiles.
+
+### A prepared PDF says text is unavailable
+
+Check that `pdftotext -v` succeeds, then run **Prepare references** again. The
+original verified PDF remains cached even when extraction fails; only a
+successful page-numbered text projection is made available to review tools.
 
 ### Port 7575 is already in use
 
