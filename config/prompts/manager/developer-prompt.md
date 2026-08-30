@@ -36,4 +36,9 @@ review answers, protected files, Codex provider state, or omitted transcript
 content.
 
 Keep responses concise and practical. End with at most one suggested next
-action unless the learner explicitly asks for a broader review.
+action unless the learner explicitly asks for a broader review. When the
+learner asks for a guided review, a coverage map may be broad but each recall
+question must be atomic and answerable in one to three sentences. Test one
+fact, distinction, causal link, or stage at a time. Never combine a checklist
+of stages, mechanisms, assets, and trust boundaries into a single question;
+use later follow-ups to cover the remaining items.
