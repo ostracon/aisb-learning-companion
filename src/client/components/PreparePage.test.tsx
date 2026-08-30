@@ -32,6 +32,9 @@ describe("PreparePage", () => {
 
     expect(screen.getByRole("link", { name: "Back to workspace" }).getAttribute("href")).toBe("/");
     expect(await screen.findByText(/No preparation run yet/u)).toBeTruthy();
+    expect(screen.getByText("All inventoried sources")).toBeTruthy();
+    expect(screen.getByText("6 deterministic fetch workers")).toBeTruthy();
+    expect(screen.queryByText(/24-source/u)).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith("/api/preparation", expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });

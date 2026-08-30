@@ -24,12 +24,13 @@ const MARKDOWN_PATH = /^preparation\/cache\/sha256\/[a-f0-9]{2}\/[a-f0-9]{64}\.m
 
 const DEFAULT_LIMITS: PreparationLimitsView = Object.freeze({
   maxInventorySources: 256,
-  maxSources: 24,
-  maxSourceBytes: 2 * 1024 * 1024,
-  maxTotalBytes: 12 * 1024 * 1024,
+  maxSources: 256,
+  maxSourceBytes: 16 * 1024 * 1024,
+  maxTotalBytes: 128 * 1024 * 1024,
   maxRedirects: 3,
   requestTimeoutMs: 15_000,
 });
+const FETCH_CONCURRENCY = 6;
 
 const originSchema = z.object({
   sectionId: z.string().min(1).max(80),
@@ -462,6 +463,37 @@ export class PreparationService {
     let totalCachedBytes = 0;
     let generatedMarkdownBytes = 0;
 
+    type FetchCompletion =
+      | { readonly ok: true; readonly result: PublicWebFetchResult }
+      | { readonly ok: false; readonly error: unknown };
+    const fetchableCount = fetchSources
+      ? Math.min(recorded.length, this.#limits.maxSources)
+      : 0;
+    const pending = new Map<number, Promise<FetchCompletion>>();
+    let nextFetchIndex = 0;
+    const scheduleNextFetch = () => {
+      if (nextFetchIndex >= fetchableCount) return;
+      const index = nextFetchIndex;
+      const source = recorded[index];
+      nextFetchIndex += 1;
+      if (source === undefined) return;
+      const completion: Promise<FetchCompletion> = Promise.resolve()
+        .then(async () => await this.dependencies.fetcher.fetch(source.requestedUrl, {
+          maxSourceBytes: Math.min(this.#limits.maxSourceBytes, this.#limits.maxTotalBytes),
+          maxRedirects: this.#limits.maxRedirects,
+          requestTimeoutMs: this.#limits.requestTimeoutMs,
+          signal,
+        }))
+        .then(
+          (result): FetchCompletion => ({ ok: true, result }),
+          (error: unknown): FetchCompletion => ({ ok: false, error }),
+        );
+      pending.set(index, completion);
+    };
+    for (let worker = 0; worker < Math.min(FETCH_CONCURRENCY, fetchableCount); worker += 1) {
+      scheduleNextFetch();
+    }
+
     for (const [index, source] of recorded.entries()) {
       throwIfPreparationAborted(signal);
       if (!fetchSources) {
@@ -475,35 +507,29 @@ export class PreparationService {
         ));
         continue;
       }
+      const completion = await pending.get(index);
+      pending.delete(index);
+      scheduleNextFetch();
+      if (completion === undefined) throw new Error("preparation_fetch_queue_invariant");
+      if (!completion.ok) {
+        if (signal.aborted) throw new PreparationShuttingDownError();
+        throw completion.error;
+      }
+      const result = completion.result;
+      throwIfPreparationAborted(signal);
+      if (!result.ok) {
+        sources.push(failedSource(source, result));
+        continue;
+      }
       if (totalCachedBytes >= this.#limits.maxTotalBytes) {
         sources.push(failedSource(source, {
           ok: false,
           requestedUrl: source.requestedUrl,
-          finalUrl: null,
+          finalUrl: result.finalUrl,
           failureCode: "total_limit",
-          detail: "The run reached its total cache byte limit before this source was fetched.",
-          redirects: [],
+          detail: "The run reached its total cache byte limit before this source could be stored.",
+          redirects: result.redirects,
         }));
-        continue;
-      }
-      let result: PublicWebFetchResult;
-      try {
-        result = await this.dependencies.fetcher.fetch(source.requestedUrl, {
-          maxSourceBytes: Math.min(
-            this.#limits.maxSourceBytes,
-            this.#limits.maxTotalBytes - totalCachedBytes,
-          ),
-          maxRedirects: this.#limits.maxRedirects,
-          requestTimeoutMs: this.#limits.requestTimeoutMs,
-          signal,
-        });
-      } catch (error) {
-        if (signal.aborted) throw new PreparationShuttingDownError();
-        throw error;
-      }
-      throwIfPreparationAborted(signal);
-      if (!result.ok) {
-        sources.push(failedSource(source, result));
         continue;
       }
       let markdownBytes: Buffer | null = null;

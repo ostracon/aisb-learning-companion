@@ -260,7 +260,8 @@ export function PreparePage() {
 
       <div className="prepare-boundary" aria-label="Preparation boundaries">
         <span>HTML/PDF only</span>
-        <span>24-source fetch limit</span>
+        <span>All inventoried sources</span>
+        <span>6 deterministic fetch workers</span>
         <span>No Codex enrichment</span>
         <span>No audio transcription</span>
       </div>

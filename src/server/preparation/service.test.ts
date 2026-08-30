@@ -184,6 +184,80 @@ describe("PreparationService", () => {
     expect(run.sources.map(({ status }) => status)).toEqual(["cached", "not_fetched"]);
   });
 
+  it("fetches the complete default inventory instead of stopping after 24 sources", async () => {
+    const store = new MemoryStore();
+    const links = Array.from({ length: 30 }, (_, index) => ({
+      label: `Reference ${index + 1}`,
+      url: `https://reference-${String(index + 1).padStart(2, "0")}.example/`,
+    }));
+    const fetchCalls: string[] = [];
+    const service = new PreparationService({
+      manifests: { async readManifests() { return [manifest("2.2", links)]; } },
+      fetcher: {
+        async fetch(url) {
+          fetchCalls.push(url);
+          return {
+            ok: false as const,
+            requestedUrl: url,
+            finalUrl: url,
+            failureCode: "network_error" as const,
+            detail: "failed safely",
+            redirects: [],
+          };
+        },
+      },
+      store,
+      now: () => new Date("2026-08-30T10:00:00.000Z"),
+      createId: () => "prep_complete_inventory",
+    });
+
+    const run = await service.start(true);
+
+    expect(fetchCalls).toHaveLength(30);
+    expect(run.sources).toHaveLength(30);
+    expect(run.sources.some(({ status }) => status === "not_fetched")).toBe(false);
+    expect(run.limits.maxSources).toBe(run.limits.maxInventorySources);
+  });
+
+  it("uses bounded concurrent fetches while publishing results in deterministic URL order", async () => {
+    const store = new MemoryStore();
+    const links = Array.from({ length: 9 }, (_, index) => ({
+      label: `Reference ${index + 1}`,
+      url: `https://${String(9 - index).padStart(2, "0")}.example/`,
+    }));
+    let activeFetches = 0;
+    let maximumActiveFetches = 0;
+    const service = new PreparationService({
+      manifests: { async readManifests() { return [manifest("2.2", links)]; } },
+      fetcher: {
+        async fetch(url) {
+          activeFetches += 1;
+          maximumActiveFetches = Math.max(maximumActiveFetches, activeFetches);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          activeFetches -= 1;
+          return {
+            ok: false as const,
+            requestedUrl: url,
+            finalUrl: url,
+            failureCode: "network_error" as const,
+            detail: "failed safely",
+            redirects: [],
+          };
+        },
+      },
+      store,
+      now: () => new Date("2026-08-30T10:00:00.000Z"),
+      createId: () => "prep_concurrent",
+    });
+
+    const run = await service.start(true);
+
+    expect(maximumActiveFetches).toBe(6);
+    expect(run.sources.map(({ requestedUrl }) => requestedUrl)).toEqual(
+      [...run.sources.map(({ requestedUrl }) => requestedUrl)].sort(),
+    );
+  });
+
   it("counts generated Markdown against the total byte limit before publishing", async () => {
     const store = new MemoryStore();
     const bytes = Buffer.from("<title>T</title><p>Body</p>");
