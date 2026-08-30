@@ -34,6 +34,7 @@ describe("VisualAidService", () => {
     const service = new VisualAidService(root, provider, () => new Date("2026-08-30T10:00:00.000Z"));
 
     const preview = service.preview(brief);
+    expect(service.listPending()).toEqual([]);
     expect(preview.model).toBe("gpt-image-2");
     expect(preview.quality).toBe("low");
     expect(preview.renderedPrompt).toContain(brief.essentialRelationships);
@@ -45,6 +46,7 @@ describe("VisualAidService", () => {
     expect(asset.brief).toEqual(brief);
     expect(asset.imageUrl).toBe(`/api/visuals/${asset.assetId}/image`);
     expect(provider.generate).toHaveBeenCalledOnce();
+    expect(service.listPending()).toEqual([]);
     expect(await service.list()).toEqual([asset]);
     expect((await service.readImage(asset.assetId)).bytes.subarray(0, 8)).toEqual(
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -75,6 +77,14 @@ describe("VisualAidService", () => {
       payloadHash: first.payloadHash,
     })).rejects.toMatchObject({ code: "confirmation_expired" });
     expect(provider.generate).not.toHaveBeenCalled();
+  });
+
+  it("lists only assistant-prepared briefs for review on the Visuals page", () => {
+    const service = new VisualAidService("/unused", fakeProvider());
+    service.preview(brief);
+    const assistantPreview = service.preview({ ...brief, title: "Assistant brief" }, "assistant");
+
+    expect(service.listPending()).toEqual([assistantPreview]);
   });
 
   it("fails closed when a saved asset no longer matches its metadata", async () => {

@@ -32,6 +32,9 @@ const bindingFieldsSchema = z
     threadId: runtimeIdSchema,
     model: configIdSchema,
     permissionProfile: configIdSchema,
+    // Optional for backwards compatibility with bindings created before the
+    // app exposed application-owned dynamic tools.
+    toolsetVersion: configIdSchema.optional(),
   })
   .strict();
 
@@ -94,6 +97,7 @@ export interface TutorThreadBinding {
   readonly threadId: string;
   readonly model: string;
   readonly permissionProfile: string;
+  readonly toolsetVersion?: string;
   readonly updatedAt: string;
 }
 
@@ -118,6 +122,7 @@ export interface UpsertTutorThreadBindingRequest {
     readonly threadId: string;
     readonly model: string;
     readonly permissionProfile: string;
+    readonly toolsetVersion?: string;
   };
 }
 
@@ -248,6 +253,7 @@ function canonicalPayload(document: Pick<StoredDocument, "schemaVersion" | "revi
       threadId: binding.threadId,
       model: binding.model,
       permissionProfile: binding.permissionProfile,
+      ...(binding.toolsetVersion === undefined ? {} : { toolsetVersion: binding.toolsetVersion }),
       updatedAt: binding.updatedAt,
     })),
   });
@@ -300,7 +306,8 @@ function sameBinding(
     stored.chatId === desired.chatId &&
     stored.threadId === desired.threadId &&
     stored.model === desired.model &&
-    stored.permissionProfile === desired.permissionProfile
+    stored.permissionProfile === desired.permissionProfile &&
+    stored.toolsetVersion === desired.toolsetVersion
   );
 }
 
@@ -311,6 +318,7 @@ function publicRecord(binding: StoredBinding): TutorThreadBindingRecord {
     threadId: binding.threadId,
     model: binding.model,
     permissionProfile: binding.permissionProfile,
+    ...(binding.toolsetVersion === undefined ? {} : { toolsetVersion: binding.toolsetVersion }),
     updatedAt: binding.updatedAt,
   });
 }

@@ -148,6 +148,12 @@ into this repository.
 
 The app does not load `.env` files automatically.
 
+The tutor and learning manager can prepare a structured visual brief when an
+image would genuinely help explain a relationship. Open **Useful visuals** to
+review that brief and the exact prompt. The assistant cannot generate an image
+or incur image-generation usage by itself: you must select **Generate this
+visual** separately.
+
 ## Configuration
 
 All settings are optional when the two repositories are siblings.

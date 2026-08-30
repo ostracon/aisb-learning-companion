@@ -750,6 +750,7 @@ function persistedBinding(threadId: string, chatId = "chat:durable") {
     threadId,
     model: "gpt-5.6-sol",
     permissionProfile: "aisb-tutor",
+    toolsetVersion: "learning-visual-v1",
   };
 }
 
@@ -794,6 +795,7 @@ describe("DurableTutorThreadResolver", () => {
         threadId: "thread-stale",
         model: "gpt-5.6-sol",
         permissionProfile: "aisb-tutor",
+        toolsetVersion: "learning-visual-v1",
       },
     });
     const gateway = new FakeGateway(["thread-replacement"], new Set(["thread-stale"]));
@@ -828,6 +830,33 @@ describe("DurableTutorThreadResolver", () => {
     expect((await store.readScope("day:day1")).binding).toMatchObject(
       persistedBinding("thread-existing"),
     );
+  });
+
+  it("replaces a legacy rollout once so the application-owned visual tool is registered", async () => {
+    const stateRoot = await temporaryStateRoot();
+    const store = new TutorThreadBindingStore(stateRoot);
+    const initial = await store.read();
+    await store.upsert({
+      scopeKey: "day:day1",
+      expectedVersion: initial.version,
+      binding: {
+        chatId: "chat:durable",
+        threadId: "thread-without-tools",
+        model: "gpt-5.6-sol",
+        permissionProfile: "aisb-tutor",
+      },
+    });
+    const gateway = new FakeGateway(["thread-with-tools"]);
+
+    await expect(new DurableTutorThreadResolver(store).resolve(gateway, "day:day1")).resolves.toEqual({
+      chatId: "chat:durable",
+      threadId: "thread-with-tools",
+    });
+    expect(gateway.resumes).toEqual([]);
+    expect((await store.readScope("day:day1")).binding).toMatchObject({
+      threadId: "thread-with-tools",
+      toolsetVersion: "learning-visual-v1",
+    });
   });
 
   it("preserves the binding when a resumed thread fails instruction verification", async () => {

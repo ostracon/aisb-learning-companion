@@ -42,6 +42,7 @@ describe("registerVisualAidRoutes", () => {
         imageUrl: "/api/visuals/visual_12345678-1234-1234-1234-123456789abc/image",
       })),
       list: vi.fn(async () => []),
+      listPending: vi.fn(() => []),
       readImage: vi.fn(async () => { throw new Error("unused"); }),
     };
     registerVisualAidRoutes(app, service);
@@ -49,6 +50,9 @@ describe("registerVisualAidRoutes", () => {
     const preview = await app.inject({ method: "POST", url: "/api/visuals/preview", payload: brief });
     expect(preview.statusCode).toBe(200);
     expect(service.generate).not.toHaveBeenCalled();
+    const pending = await app.inject({ method: "GET", url: "/api/visuals/pending" });
+    expect(pending.statusCode).toBe(200);
+    expect(service.listPending).toHaveBeenCalledOnce();
     const confirmation = preview.json();
 
     const generated = await app.inject({
@@ -70,6 +74,7 @@ describe("registerVisualAidRoutes", () => {
       preview: vi.fn() as never,
       generate: vi.fn() as never,
       list: async () => [],
+      listPending: () => [],
       readImage: async (assetId) => ({
         bytes: Buffer.from("png"),
         metadata: {

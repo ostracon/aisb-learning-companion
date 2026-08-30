@@ -136,6 +136,12 @@ const preparedReferenceContextSource = new FilePreparedReferenceContextSource(
   config.stateRoot,
   preparationService,
 );
+const visualAidService = new VisualAidService(
+  config.stateRoot,
+  config.imageGenerationAvailable
+    ? new OpenAIVisualImageProvider(process.env.CODEX_OPENAI_API_KEY ?? "")
+    : null,
+);
 const tutorService = new TutorService(
   config,
   scheduleStore,
@@ -147,6 +153,7 @@ const tutorService = new TutorService(
   tutorSessionLogStore,
   continuitySummaryStore,
   preparedReferenceContextSource,
+  { visualAidService },
 );
 const managerService = new ManagerService(
   config,
@@ -162,12 +169,8 @@ const managerService = new ManagerService(
   }),
   tutorSessionLogStore,
   tutorThreadBindingStore,
-);
-const visualAidService = new VisualAidService(
-  config.stateRoot,
-  config.imageGenerationAvailable
-    ? new OpenAIVisualImageProvider(process.env.CODEX_OPENAI_API_KEY ?? "")
-    : null,
+  undefined,
+  visualAidService,
 );
 const backupExportService = new BackupExportService(config.stateRoot);
 const repositoryStateReader = new GitWorkspaceRepositoryStateReader();

@@ -330,6 +330,25 @@ describe("TutorGateway thread safety", () => {
     ]);
   });
 
+  it("registers application-owned dynamic tools only on new threads", async () => {
+    const client = new FakeGatewayClient();
+    const dynamicTool = {
+      type: "function" as const,
+      name: "prepare_learning_visual",
+      description: "Prepare a brief for explicit learner review.",
+      inputSchema: { type: "object", additionalProperties: false },
+    };
+    const gateway = new TutorGateway(client, {
+      aisbRoot: AISB_ROOT,
+      permissionsProfile: PERMISSIONS_PROFILE,
+      dynamicTools: [dynamicTool],
+    });
+
+    await gateway.startThread();
+
+    expect(client.startThreadCalls[0]).toMatchObject({ dynamicTools: [dynamicTool] });
+  });
+
   it("refuses to mark a thread usable when required instruction sources are absent", async () => {
     const client = new FakeGatewayClient();
     client.threadStartResponse = makeThreadStartResponse([`${AISB_ROOT}/UNRELATED.md`]);

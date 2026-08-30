@@ -72,18 +72,33 @@ export function VisualAidPage({ available }: { readonly available: boolean }) {
   const [loadingAssets, setLoadingAssets] = useState(true);
   const [working, setWorking] = useState<"preview" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [assistantPrepared, setAssistantPrepared] = useState(false);
 
   useEffect(() => {
     let current = true;
-    void fetch("/api/visuals")
-      .then(async (response) => {
+    void Promise.all([
+      fetch("/api/visuals").then(async (response) => {
         if (!response.ok) throw await responseError(response, "Could not load saved visuals.");
         const value: unknown = await response.json();
         if (!Array.isArray(value)) throw new Error("The visual service returned malformed data.");
         return value.map(parseAsset);
-      })
-      .then((next) => {
-        if (current) setAssets(next);
+      }),
+      fetch("/api/visuals/pending").then(async (response) => {
+        if (!response.ok) throw await responseError(response, "Could not load prepared visual briefs.");
+        const value: unknown = await response.json();
+        if (!Array.isArray(value)) throw new Error("The visual preview service returned malformed data.");
+        return value.map(parsePreview);
+      }),
+    ])
+      .then(([nextAssets, pending]) => {
+        if (!current) return;
+        setAssets(nextAssets);
+        const latest = pending[0];
+        if (latest !== undefined) {
+          setBrief(latest.brief);
+          setPreview(latest);
+          setAssistantPrepared(true);
+        }
       })
       .catch((reason: unknown) => {
         if (current) setError(reason instanceof Error ? reason.message : "Could not load saved visuals.");
@@ -99,6 +114,7 @@ export function VisualAidPage({ available }: { readonly available: boolean }) {
   const update = (field: keyof VisualAidBrief, value: string) => {
     setBrief((current) => ({ ...current, [field]: value }));
     setPreview(null);
+    setAssistantPrepared(false);
     setError(null);
   };
 
@@ -115,6 +131,7 @@ export function VisualAidPage({ available }: { readonly available: boolean }) {
       });
       if (!response.ok) throw await responseError(response, "Could not prepare the visual brief.");
       setPreview(parsePreview(await response.json()));
+      setAssistantPrepared(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not prepare the visual brief.");
     } finally {
@@ -139,6 +156,7 @@ export function VisualAidPage({ available }: { readonly available: boolean }) {
       const asset = parseAsset(await response.json());
       setAssets((current) => [asset, ...current.filter((item) => item.assetId !== asset.assetId)]);
       setPreview(null);
+      setAssistantPrepared(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not generate the visual.");
       setPreview(null);
@@ -149,6 +167,7 @@ export function VisualAidPage({ available }: { readonly available: boolean }) {
 
   return (
     <main className="visual-aid-page">
+      <div className="visual-aid-content">
       <header className="utility-page-header">
         <div>
           <p className="eyebrow">Optional learning aid</p>
@@ -168,6 +187,12 @@ export function VisualAidPage({ available }: { readonly available: boolean }) {
         </p>
       ) : null}
       {error ? <p className="inline-error" role="alert">{error}</p> : null}
+      {assistantPrepared ? (
+        <p className="utility-notice visual-assistant-notice" role="status">
+          The assistant prepared this brief from the current learning context. Review every field
+          and the exact prompt below; no image has been generated yet.
+        </p>
+      ) : null}
 
       <section className="visual-brief-section" aria-labelledby="visual-brief-heading">
         <div className="section-heading-row">
@@ -228,7 +253,7 @@ export function VisualAidPage({ available }: { readonly available: boolean }) {
           </div>
           <pre>{preview.renderedPrompt}</pre>
           <div className="form-actions">
-            <button className="outline-button" type="button" onClick={() => setPreview(null)} disabled={working !== null}>
+            <button className="outline-button" type="button" onClick={() => { setPreview(null); setAssistantPrepared(false); }} disabled={working !== null}>
               Edit brief
             </button>
             <button className="primary-button" type="button" onClick={() => void generate()} disabled={working !== null}>
@@ -270,6 +295,7 @@ export function VisualAidPage({ available }: { readonly available: boolean }) {
           ))}
         </div>
       </section>
+      </div>
     </main>
   );
 }

@@ -40,6 +40,12 @@ import {
   type EventCurriculumBindingSnapshot,
 } from "../curriculum/event-binding-store.js";
 import type { CurriculumMaterialService } from "../materials/service.js";
+import type { VisualAidService } from "../images/service.js";
+import {
+  createLearningVisualToolHandler,
+  learningVisualToolSpec,
+  VISUAL_TOOLSET_VERSION,
+} from "../images/tool.js";
 import type { MarkdownNoteStore } from "../notes/store.js";
 import type { ScheduleStore } from "../schedule/store.js";
 import type {
@@ -227,6 +233,7 @@ interface TutorThreadBinding {
 interface PersistedTutorThreadBinding extends TutorThreadBinding {
   readonly model: string;
   readonly permissionProfile: string;
+  readonly toolsetVersion?: string;
 }
 
 export interface TutorThreadGatewayPort {
@@ -416,6 +423,7 @@ export interface TutorServiceDependencies {
   /** Optional deterministic recovery seam; production resolves the verified Codex stack. */
   readonly recoveryGateway?: TutorTurnRecoveryGatewayPort;
   readonly turnAdmission?: TutorTurnAdmission;
+  readonly visualAidService?: Pick<VisualAidService, "preview">;
 }
 
 export interface ReconcilePendingTutorTurnsInput {
@@ -546,6 +554,7 @@ function persistedBindingIdentity(
     binding.threadId,
     binding.model,
     binding.permissionProfile,
+    binding.toolsetVersion ?? "legacy",
   ]);
 }
 
@@ -729,6 +738,11 @@ export class DurableTutorThreadResolver {
     existing: (PersistedTutorThreadBinding & { readonly scopeKey: string }) | null,
   ): Promise<PersistedTutorThreadBinding> {
     if (existing !== null) {
+      // Dynamic tools are fixed when a Codex thread starts. Preserve the local
+      // chat identity but replace one legacy rollout exactly once.
+      if (existing.toolsetVersion !== VISUAL_TOOLSET_VERSION) {
+        return this.#startVerified(gateway, existing.chatId);
+      }
       if (gateway.isInstructionVerified(existing.threadId)) {
         return this.#binding(existing.chatId, existing.threadId);
       }
@@ -766,6 +780,7 @@ export class DurableTutorThreadResolver {
       threadId,
       model: TUTOR_MODEL,
       permissionProfile: TUTOR_PERMISSION_PROFILE,
+      toolsetVersion: VISUAL_TOOLSET_VERSION,
     });
   }
 
@@ -788,6 +803,7 @@ export class TutorService {
   readonly #recoveryGateway: TutorTurnRecoveryGatewayPort | null;
   readonly #threadResolutionByScope = new Map<string, Promise<TutorThreadBinding>>();
   readonly #turnAdmission: TutorTurnAdmission;
+  readonly #visualAidService: Pick<VisualAidService, "preview"> | null;
   readonly #turnResolutionAdmission = new TutorTurnResolutionAdmission();
   readonly #activeTurns = new TutorActiveTurnRegistry();
   #stack: CodexStack | null = null;
@@ -815,6 +831,7 @@ export class TutorService {
     this.#preparedReferenceSource = preparedReferenceSource;
     this.#recoveryGateway = dependencies.recoveryGateway ?? null;
     this.#turnAdmission = dependencies.turnAdmission ?? new TutorTurnAdmission();
+    this.#visualAidService = dependencies.visualAidService ?? null;
     this.#runtime = createRoutePageContextRuntime({
       schedule: createTutorScheduleAdapter(
         scheduleStore,
@@ -1484,6 +1501,9 @@ export class TutorService {
         executable: this.config.codexExecutable,
         cwd: this.config.aisbRoot,
         env: sanitizedChildEnvironment(process.env, { CODEX_HOME: codexHome.path }),
+        ...(this.#visualAidService === null
+          ? {}
+          : { dynamicToolHandler: createLearningVisualToolHandler(this.#visualAidService) }),
       });
       const gateway = new TutorGateway(client, {
         aisbRoot: this.config.aisbRoot,
@@ -1491,6 +1511,7 @@ export class TutorService {
         permissionsProfile: TUTOR_PERMISSION_PROFILE,
         defaultModel: TUTOR_MODEL,
         defaultEffort: "medium",
+        ...(this.#visualAidService === null ? {} : { dynamicTools: [learningVisualToolSpec] }),
       });
       const stack = { client, gateway };
       client.onFault((fault) => {

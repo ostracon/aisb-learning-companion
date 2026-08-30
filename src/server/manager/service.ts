@@ -18,6 +18,12 @@ import {
   TutorThreadNotFoundError,
 } from "../codex/tutor-gateway.js";
 import { sanitizedChildEnvironment, type RuntimeConfig } from "../config.js";
+import type { VisualAidService } from "../images/service.js";
+import {
+  createLearningVisualToolHandler,
+  learningVisualToolSpec,
+  VISUAL_TOOLSET_VERSION,
+} from "../images/tool.js";
 import type { TutorSessionScopeLog } from "../tutor/session-log-store.js";
 import { TutorThreadBindingStore } from "../tutor/thread-binding-store.js";
 import { ManagerContextService } from "./context-service.js";
@@ -36,6 +42,7 @@ interface ManagerBinding {
   readonly threadId: string;
   readonly model: string;
   readonly permissionProfile: string;
+  readonly toolsetVersion?: string;
 }
 
 export interface ManagerGatewayPort {
@@ -136,6 +143,7 @@ export class ManagerService {
     private readonly sessionStore: ManagerSessionStorePort,
     private readonly bindingStore: ManagerBindingStorePort = new TutorThreadBindingStore(config.stateRoot),
     private readonly connectGateway?: () => Promise<ManagerStack>,
+    private readonly visualAidService: Pick<VisualAidService, "preview"> | null = null,
   ) {}
 
   public async readSession(): Promise<ManagerSessionView> {
@@ -349,6 +357,7 @@ export class ManagerService {
         current.binding !== null
         && current.binding.model === MANAGER_MODEL
         && current.binding.permissionProfile === REVIEW_PERMISSION_PROFILE
+        && current.binding.toolsetVersion === VISUAL_TOOLSET_VERSION
       ) {
         try {
           const resumed = await gateway.resumeThread({
@@ -363,6 +372,7 @@ export class ManagerService {
             threadId: resumed.thread.id,
             model: MANAGER_MODEL,
             permissionProfile: REVIEW_PERMISSION_PROFILE,
+            toolsetVersion: VISUAL_TOOLSET_VERSION,
           };
         } catch (error) {
           if (!(error instanceof TutorThreadNotFoundError)) throw error;
@@ -391,6 +401,7 @@ export class ManagerService {
       threadId: started.thread.id,
       model: MANAGER_MODEL,
       permissionProfile: REVIEW_PERMISSION_PROFILE,
+      toolsetVersion: VISUAL_TOOLSET_VERSION,
     };
   }
 
@@ -430,6 +441,9 @@ export class ManagerService {
       executable: this.config.codexExecutable,
       cwd: reviewWorkspace.path,
       env: sanitizedChildEnvironment(process.env, { CODEX_HOME: codexHome.path }),
+      ...(this.visualAidService === null
+        ? {}
+        : { dynamicToolHandler: createLearningVisualToolHandler(this.visualAidService) }),
     });
     try {
       return {
@@ -440,6 +454,7 @@ export class ManagerService {
           developerInstructions,
           defaultModel: MANAGER_MODEL,
           defaultEffort: MANAGER_EFFORT,
+          ...(this.visualAidService === null ? {} : { dynamicTools: [learningVisualToolSpec] }),
         }),
       };
     } catch (error) {

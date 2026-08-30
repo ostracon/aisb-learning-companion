@@ -62,7 +62,12 @@ class FakeAppServerProcess extends EventEmitter implements AppServerProcess {
 
 function connect(
   fake: FakeAppServerProcess,
-  options: { requestTimeoutMs?: number; maxLineBytes?: number; maxStderrBytes?: number } = {},
+  options: {
+    requestTimeoutMs?: number;
+    maxLineBytes?: number;
+    maxStderrBytes?: number;
+    dynamicToolHandler?: (params: unknown) => Promise<unknown>;
+  } = {},
 ): Promise<AppServerClient> {
   const previous = fake.onMessage;
   fake.onMessage = (message) => {
@@ -302,6 +307,40 @@ describe("AppServerClient", () => {
         message: "Denied by AISB Learning Companion policy",
       },
     });
+    client.close();
+  });
+
+  it("handles only the explicitly configured application dynamic-tool request", async () => {
+    const fake = new FakeAppServerProcess();
+    const seen: unknown[] = [];
+    const client = await connect(fake, {
+      dynamicToolHandler: async (params) => {
+        seen.push(params);
+        return {
+          success: true,
+          contentItems: [{ type: "inputText", text: "brief prepared" }],
+        };
+      },
+    });
+    const faults: AppServerPolicyFault[] = [];
+    client.onPolicyFault((fault) => faults.push(fault));
+
+    fake.reply({
+      id: "tool-1",
+      method: "item/tool/call",
+      params: { threadId: "thread-1", tool: "prepare_learning_visual" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(seen).toEqual([{ threadId: "thread-1", tool: "prepare_learning_visual" }]);
+    expect(fake.messages.at(-1)).toEqual({
+      id: "tool-1",
+      result: {
+        success: true,
+        contentItems: [{ type: "inputText", text: "brief prepared" }],
+      },
+    });
+    expect(faults).toEqual([]);
     client.close();
   });
 

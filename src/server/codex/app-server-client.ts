@@ -78,6 +78,11 @@ export interface AppServerClientOptions {
   readonly maxStderrBytes?: number;
   readonly maxOutboundBytes?: number;
   readonly spawn?: AppServerSpawner;
+  /**
+   * Handles the one application-owned dynamic-tool request surface. Every
+   * other server-initiated interaction continues to fail closed.
+   */
+  readonly dynamicToolHandler?: (params: unknown) => Promise<unknown>;
 }
 
 export interface AppServerNotification {
@@ -165,6 +170,7 @@ export class AppServerClient {
   readonly #maxLineBytes: number;
   readonly #maxStderrBytes: number;
   readonly #maxOutboundBytes: number;
+  readonly #dynamicToolHandler: AppServerClientOptions["dynamicToolHandler"];
   readonly #pending = new Map<string, PendingRequest>();
   #state: "initializing" | "ready" | "closed" = "initializing";
   #nextRequestId = 1;
@@ -191,6 +197,7 @@ export class AppServerClient {
       options.maxOutboundBytes ?? DEFAULT_MAX_OUTBOUND_BYTES,
       "maxOutboundBytes",
     );
+    this.#dynamicToolHandler = options.dynamicToolHandler;
 
     process.stdout.on("data", (chunk) => this.#receiveStdout(chunk));
     process.stderr.on("data", (chunk) => this.#receiveStderr(chunk));
@@ -452,7 +459,7 @@ export class AppServerClient {
     }
 
     if (isRequestId(parsed.id) && typeof parsed.method === "string") {
-      this.#handleServerRequest(parsed.id, parsed.method);
+      this.#handleServerRequest(parsed.id, parsed.method, parsed.params);
       return;
     }
     if (isRequestId(parsed.id) && ("result" in parsed || "error" in parsed)) {
@@ -501,7 +508,11 @@ export class AppServerClient {
     pending.resolve(message.result);
   }
 
-  #handleServerRequest(id: RequestId, method: string): void {
+  #handleServerRequest(id: RequestId, method: string, params: unknown): void {
+    if (method === "item/tool/call" && this.#dynamicToolHandler !== undefined) {
+      void this.#handleDynamicToolRequest(id, params);
+      return;
+    }
     const fault: AppServerPolicyFault = {
       kind: "policy",
       message: `Codex App Server requested disallowed client interaction: ${method}`,
@@ -523,6 +534,30 @@ export class AppServerClient {
     }
     this.#events.emit("policy-fault", fault);
     this.#emitFault(fault);
+  }
+
+  async #handleDynamicToolRequest(id: RequestId, params: unknown): Promise<void> {
+    try {
+      const result = await this.#dynamicToolHandler?.(params);
+      this.#write({ id, result });
+    } catch {
+      // A failed visual proposal is a normal tool failure. It must not tear
+      // down an otherwise healthy tutor process or expose internal details.
+      try {
+        this.#write({
+          id,
+          result: {
+            success: false,
+            contentItems: [{
+              type: "inputText",
+              text: "The learning-visual brief could not be prepared. Continue with a prose explanation instead.",
+            }],
+          },
+        });
+      } catch {
+        // Closing the process while a tool is finishing needs no second fault.
+      }
+    }
   }
 
   #receiveStderr(chunk: Buffer | string): void {

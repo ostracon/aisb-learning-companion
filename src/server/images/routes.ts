@@ -21,6 +21,7 @@ const assetParamsSchema = z.object({
 
 export interface VisualAidRouteService {
   preview(input: Readonly<VisualAidBrief>): VisualAidPreviewResponse;
+  listPending(): readonly VisualAidPreviewResponse[];
   generate(input: Readonly<{
     confirmationToken: string;
     payloadHash: string;
@@ -36,6 +37,14 @@ export function registerVisualAidRoutes(app: FastifyInstance, service: VisualAid
   app.get("/api/visuals", async (_request, reply) => {
     try {
       return reply.send(await service.list());
+    } catch (error) {
+      return sendVisualError(reply, error);
+    }
+  });
+
+  app.get("/api/visuals/pending", async (_request, reply) => {
+    try {
+      return reply.send(service.listPending());
     } catch (error) {
       return sendVisualError(reply, error);
     }

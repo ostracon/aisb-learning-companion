@@ -72,6 +72,7 @@ interface PendingPreview {
   readonly payloadHash: string;
   readonly expiresAtMs: number;
   readonly preview: VisualAidPreviewResponse;
+  readonly source: "manual" | "assistant";
 }
 
 export interface GeneratedVisualBytes {
@@ -187,7 +188,10 @@ export class VisualAidService {
     this.#configuredStateRoot = resolve(stateRoot);
   }
 
-  public preview(input: Readonly<VisualAidBrief>): VisualAidPreviewResponse {
+  public preview(
+    input: Readonly<VisualAidBrief>,
+    source: "manual" | "assistant" = "manual",
+  ): VisualAidPreviewResponse {
     if (this.provider === null || this.#closing) {
       throw new VisualAidServiceError("unavailable", "Image generation is not configured.");
     }
@@ -212,8 +216,20 @@ export class VisualAidService {
       payloadHash,
       expiresAtMs,
       preview,
+      source,
     });
     return preview;
+  }
+
+  /** Active reviewed briefs, newest first, for the local confirmation page. */
+  public listPending(): readonly VisualAidPreviewResponse[] {
+    this.#pruneExpired();
+    return Object.freeze(
+      [...this.#pending.values()]
+        .filter((entry) => entry.source === "assistant")
+        .sort((left, right) => right.expiresAtMs - left.expiresAtMs)
+        .map((entry) => entry.preview),
+    );
   }
 
   public async generate(input: Readonly<{

@@ -2,6 +2,7 @@ import { isAbsolute, normalize, resolve } from "node:path";
 
 import type { ReasoningEffort } from "./generated/ReasoningEffort.js";
 import type { JsonValue } from "./generated/serde_json/JsonValue.js";
+import type { DynamicToolSpec } from "./generated/v2/DynamicToolSpec.js";
 import type { Model } from "./generated/v2/Model.js";
 import type { ModelListParams } from "./generated/v2/ModelListParams.js";
 import type { ModelListResponse } from "./generated/v2/ModelListResponse.js";
@@ -70,6 +71,8 @@ export interface TutorGatewayOptions {
   readonly turnTimeoutMs?: number;
   /** Bound after an acknowledged interrupt while waiting for terminal truth. */
   readonly interruptCompletionTimeoutMs?: number;
+  /** Application-owned tools fixed for the lifetime of each new thread. */
+  readonly dynamicTools?: readonly DynamicToolSpec[];
 }
 
 export interface TutorThreadStartInput {
@@ -263,6 +266,7 @@ export class TutorGateway {
   readonly #defaultEffort: ReasoningEffort | undefined;
   readonly #turnTimeoutMs: number;
   readonly #interruptCompletionTimeoutMs: number;
+  readonly #dynamicTools: readonly DynamicToolSpec[];
   readonly #verifiedThreads = new Set<string>();
   readonly #activeThreads = new Set<string>();
 
@@ -299,6 +303,7 @@ export class TutorGateway {
     this.#developerInstructions = options.developerInstructions;
     this.#defaultModel = options.defaultModel;
     this.#defaultEffort = options.defaultEffort;
+    this.#dynamicTools = Object.freeze([...(options.dynamicTools ?? [])]);
     this.#turnTimeoutMs = positiveInteger(
       options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
       "turnTimeoutMs",
@@ -342,6 +347,7 @@ export class TutorGateway {
       approvalsReviewer: "user",
       permissions: this.#permissionsProfile,
       ephemeral: input.ephemeral ?? false,
+      ...(this.#dynamicTools.length === 0 ? {} : { dynamicTools: [...this.#dynamicTools] }),
       ...optionalString("model", input.model ?? this.#defaultModel),
       ...optionalString("baseInstructions", input.baseInstructions ?? this.#baseInstructions),
       ...optionalString(
