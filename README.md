@@ -4,6 +4,11 @@ A local web app for working through the AI Security Bootcamp. It puts the
 schedule, course material, Markdown notes, tutor, review tools, and learning
 progress in one place.
 
+Version 1 is a laptop-first, localhost application for one learner and one AISB
+checkout. It deliberately hands code, Git, terminals, and general file browsing
+to VS Code while keeping orientation, learning context, durable notes, tutoring,
+review, prepared references, and backup in the companion.
+
 The companion is kept in its own Git repository. It reads course material from
 a separate AISB checkout and stores your notes and chat history outside both
 repositories. The tracked schedule is a generalized example; your editable

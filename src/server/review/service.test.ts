@@ -322,7 +322,9 @@ describe("ReviewCoachService authorized question flow", () => {
     });
     expect(previews[0]?.payload.prompt).toContain(OUTCOME_ONE.text);
     expect(previews[0]?.payload.prompt).toContain('"recall_target_count":1');
-    expect(previews[0]?.payload.prompt).toContain('"maximum_prompt_characters":320');
+    expect(previews[0]?.payload.prompt).toContain('"maximum_prompt_characters":180');
+    expect(previews[0]?.payload.prompt).toContain('"maximum_prompt_words":20');
+    expect(previews[0]?.payload.prompt).toContain('"requested_actions":1');
     expect(previews[0]?.payload.prompt).not.toContain("answers.py");
     expect(previews[0]?.payload.outputSchema).toMatchObject({ type: "object" });
     expect(generator.requests[0]?.disclosure).toMatchObject({ decision: "allow_once" });
@@ -391,7 +393,7 @@ describe("ReviewCoachService authorized question flow", () => {
     ).rejects.toMatchObject({ code: "invalid_model_output" });
   });
 
-  it("rejects compound or overlong questions at the application boundary", async () => {
+  it("rejects multiple outcome links or excessively long model output", async () => {
     const compoundService = createService(new FakeGenerator(generation({
       kind: "question",
       question: {
@@ -417,6 +419,50 @@ describe("ReviewCoachService authorized question flow", () => {
     await expect(overlongService.startQuestion({
       sessionId: overlongSession.sessionId,
     })).rejects.toMatchObject({ code: "invalid_model_output" });
+  });
+
+  it("replaces model output that exceeds the learner-facing character limit", async () => {
+    const service = createService(new FakeGenerator(generation(question(
+      OUTCOME_ONE.outcomeId,
+      "x".repeat(181),
+    ))));
+    const created = await service.createSession({ canonicalOutcomes: [OUTCOME_ONE] });
+
+    const session = await service.startQuestion({ sessionId: created.sessionId });
+
+    expect(session.currentQuestion?.prompt).toBe(
+      "What is the most important idea in this outcome?",
+    );
+  });
+
+  it("publishes only the first atomic request from a compound model question", async () => {
+    const service = createService(new FakeGenerator(generation(question(
+      OUTCOME_ONE.outcomeId,
+      "In deployment, where do model weights cross a trust boundary, and why is that boundary security-relevant?",
+    ))));
+    const created = await service.createSession({ canonicalOutcomes: [OUTCOME_ONE] });
+
+    const session = await service.startQuestion({ sessionId: created.sessionId });
+
+    expect(session.currentQuestion?.prompt).toBe(
+      "In deployment, where do model weights cross a trust boundary?",
+    );
+  });
+
+  it("replaces a question that remains wordy after atomic focusing", async () => {
+    const prompt = "Explain how this model boundary changes security expectations for several operators across the full deployment lifecycle in one production setting today.";
+    expect(prompt.split(/\s+/u)).toHaveLength(21);
+    const service = createService(new FakeGenerator(generation(question(
+      OUTCOME_ONE.outcomeId,
+      prompt,
+    ))));
+    const created = await service.createSession({ canonicalOutcomes: [OUTCOME_ONE] });
+
+    const session = await service.startQuestion({ sessionId: created.sessionId });
+
+    expect(session.currentQuestion?.prompt).toBe(
+      "What is the most important idea in this outcome?",
+    );
   });
 
   it("idempotently returns the one unanswered question when start is retried", async () => {

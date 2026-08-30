@@ -86,7 +86,13 @@
   display: grid;
   grid-template-rows: minmax(10rem, 1fr) auto;
 }
+.day-review-transcript-shell {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
 .day-review-transcript {
+  height: 100%;
   min-height: 0;
   overflow: auto;
   padding: 1.25rem 0;

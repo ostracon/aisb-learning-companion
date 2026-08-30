@@ -3047,6 +3047,13 @@ body {
   font: 0.62rem/1.35 var(--mono);
 }
 
+.review-scope-note {
+  margin: -0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
 .review-settings {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 6.5rem;

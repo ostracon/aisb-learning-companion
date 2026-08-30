@@ -22,7 +22,7 @@ describe("LocalTemplateReviewGenerator", () => {
       kind: "question",
       question: {
         mode: "explain_back",
-        prompt: "Explain this outcome to a security colleague in a few sentences: Explain the model boundary.",
+        prompt: "Explain one key idea from this outcome in your own words.",
         outcome_ids: ["1.1:security:1"],
       },
     });

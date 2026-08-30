@@ -26,11 +26,15 @@ const DEFAULT_QUESTION_LIMIT = 5;
 const MAX_QUESTION_LIMIT = 20;
 const MAX_SELECTED_OUTCOMES = 32;
 const MAX_LEARNER_RESPONSE_LENGTH = 64 * 1024;
-const MAX_REVIEW_QUESTION_LENGTH = 320;
+const MAX_GENERATED_REVIEW_QUESTION_LENGTH = 320;
+const MAX_REVIEW_QUESTION_LENGTH = 180;
+const MAX_REVIEW_QUESTION_WORDS = 20;
 const MAX_REVIEW_FEEDBACK_LENGTH = 700;
 const REVIEW_ENVELOPE_SCHEMA = "aisb-learning-companion.review-turn.v1";
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
+const COMPOUND_QUESTION_BREAK_PATTERN =
+  /(?:,\s*(?:and|then)\s+|;\s*(?:(?:and|then)\s+)?|\s+(?:and|then)\s+)(?=(?:what|why|where|when|how|which|who|name|identify|explain|describe|state|list|mark|give|compare|contrast|distinguish|outline)\b)/iu;
 
 const SafeIdentifierSchema = z
   .string()
@@ -59,7 +63,7 @@ const CanonicalReviewOutcomeSchema = z
 const ModelQuestionSchema = z
   .object({
     mode: z.enum(REVIEW_QUESTION_MODES),
-    prompt: z.string().trim().min(1).max(MAX_REVIEW_QUESTION_LENGTH),
+    prompt: z.string().trim().min(1).max(MAX_GENERATED_REVIEW_QUESTION_LENGTH),
     outcome_ids: z.array(SafeIdentifierSchema).length(1),
   })
   .strict()
@@ -499,12 +503,13 @@ export class ReviewCoachService {
       question.outcome_ids,
       "question",
     );
+    const prompt = focusReviewQuestionPrompt(question.prompt, question.mode);
     return Object.freeze({
       questionId: this.#newId("question"),
       number,
       total: state.questionLimit,
       mode: question.mode,
-      prompt: question.prompt,
+      prompt,
       outcomeIds: Object.freeze(linkedOutcomes.map((outcome) => outcome.outcomeId)),
       citations: citationsFor(linkedOutcomes),
       provenance: Object.freeze({ ...provenance }),
@@ -737,6 +742,45 @@ export class ReviewCoachService {
     }
     return result;
   }
+}
+
+function fallbackReviewQuestionPrompt(mode: ReviewQuestionMode): string {
+  if (mode === "scenario_application") {
+    return "Give one AI-security example that demonstrates this outcome.";
+  }
+  if (mode === "compare_contrast") {
+    return "Name one contrast that clarifies this outcome.";
+  }
+  if (mode === "explain_back") {
+    return "Explain one key idea from this outcome in your own words.";
+  }
+  if (mode === "short_answer") {
+    return "What single point best demonstrates this outcome?";
+  }
+  return "What is the most important idea in this outcome?";
+}
+
+function focusReviewQuestionPrompt(value: string, mode: ReviewQuestionMode): string {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  const firstQuestionMark = normalized.indexOf("?");
+  let focused = firstQuestionMark >= 0 && normalized.slice(firstQuestionMark + 1).trim()
+    ? normalized.slice(0, firstQuestionMark + 1)
+    : normalized;
+  const compoundBreak = COMPOUND_QUESTION_BREAK_PATTERN.exec(focused);
+  if (compoundBreak !== null && compoundBreak.index > 0) {
+    const head = focused.slice(0, compoundBreak.index).replace(/[,:;.!?]+$/gu, "").trim();
+    if (head) focused = `${head}${normalized.endsWith("?") ? "?" : "."}`;
+  }
+  const words = focused.split(/\s+/u).filter(Boolean);
+  if (
+    focused.length > MAX_REVIEW_QUESTION_LENGTH
+    || words.length > MAX_REVIEW_QUESTION_WORDS
+    || (focused.match(/\?/gu) ?? []).length > 1
+    || /;/u.test(focused)
+  ) {
+    return fallbackReviewQuestionPrompt(mode);
+  }
+  return focused;
 }
 
 function snapshotFromState(state: Readonly<ReviewSessionState>): ReviewSessionSnapshot {
@@ -1124,8 +1168,11 @@ function reviewPrompt(body: Readonly<Record<string, unknown>>): string {
         outcome_count: 1,
         recall_target_count: 1,
         maximum_prompt_characters: MAX_REVIEW_QUESTION_LENGTH,
+        maximum_prompt_words: MAX_REVIEW_QUESTION_WORDS,
+        requested_actions: 1,
         expected_effort: "one compact answer in about two minutes",
         compound_outcomes: "test one meaningful subskill, not the entire outcome at once",
+        compound_questions: "do not join a second request with and, then, a semicolon, or another question mark",
       },
       feedback_contract: {
         maximum_characters: MAX_REVIEW_FEEDBACK_LENGTH,

@@ -429,6 +429,9 @@ export function ReviewPanel({
           ))}
           {outcomes.length === 0 ? <p>No review outcomes are defined for this day.</p> : null}
         </fieldset>
+        {outcomes.length > 0 ? (
+          <p className="review-scope-note">Each question uses one selected outcome and asks about one small part of it.</p>
+        ) : null}
         <div className="review-settings">
           <label>
             <span className="review-setting-label">

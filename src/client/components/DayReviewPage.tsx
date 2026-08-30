@@ -96,8 +96,15 @@ export function DayReviewPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showLatest, setShowLatest] = useState(false);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const transcriptContentRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const loadSequenceRef = useRef(0);
+  const submittedRef = useRef(false);
+  const stickToLatestRef = useRef(true);
+  const hasTranscriptActivityRef = useRef(false);
+  hasTranscriptActivityRef.current = (session?.messages.length ?? 0) > 0 || sending;
 
   const setDraft = (value: string) => {
     setDraftState(value);
@@ -152,17 +159,48 @@ export function DayReviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayId]);
 
-  useEffect(() => {
-    if ((session?.messages.length ?? 0) === 0 && !sending) return;
+  const scrollToLatest = (behavior: ScrollBehavior = "auto") => {
     const transcript = transcriptRef.current;
     if (transcript === null) return;
-    transcript.scrollTo?.({ top: transcript.scrollHeight, behavior: "smooth" });
+    stickToLatestRef.current = true;
+    setShowLatest(false);
+    if (typeof transcript.scrollTo === "function") {
+      transcript.scrollTo({ top: transcript.scrollHeight, behavior });
+    } else {
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+  };
+
+  useEffect(() => {
+    if ((session?.messages.length ?? 0) === 0 && !sending) return;
+    const frame = window.requestAnimationFrame(() => scrollToLatest());
+    return () => window.cancelAnimationFrame(frame);
+  // New canonical or optimistic messages should be brought into view.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.messages.length, sending]);
+
+  useEffect(() => {
+    const content = transcriptContentRef.current;
+    if (content === null || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickToLatestRef.current && hasTranscriptActivityRef.current) scrollToLatest();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  // The observer is bound once to the stable transcript content element.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!submittedRef.current || sending || loading || session?.unresolvedTurn !== null) return;
+    composerRef.current?.focus({ preventScroll: true });
+  }, [loading, sending, session?.unresolvedTurn]);
 
   const send = async (message: string) => {
     if (dayId === null || !message.trim() || sending || loading || session?.unresolvedTurn) return;
     setSending(true);
     setError(null);
+    submittedRef.current = true;
     const clientUserMessageId = crypto.randomUUID();
     const optimistic: ManagerSessionMessageView = {
       messageId: `pending:${clientUserMessageId}`,
@@ -176,7 +214,8 @@ export function DayReviewPage() {
       ...current,
       messages: [...current.messages, optimistic],
     }));
-    setDraft("");
+    // Keep the recovery copy until canonical history confirms the turn.
+    setDraftState("");
     try {
       const response = await fetch(`/api/day-review/${dayId}/turns`, {
         method: "POST",
@@ -189,6 +228,7 @@ export function DayReviewPage() {
         throw new Error("The day review returned malformed turn data.");
       }
       void (body as unknown as ManagerTurnResponse);
+      setDraft("");
       await load();
     } catch (reason) {
       setSession((current) => current === null ? current : ({
@@ -251,53 +291,88 @@ export function DayReviewPage() {
         </div>
       ) : null}
 
-      <section className="day-review-chat" aria-label={`${dayLabel} review conversation`}>
-        <div className="day-review-transcript" ref={transcriptRef} aria-live="polite">
-          {loading ? <p className="quiet-copy">Reading this day’s review history…</p> : null}
-          {!loading && session?.messages.length === 0 ? (
-            <div className="day-review-empty">
-              <p className="eyebrow">Ready when you are</p>
-              <h2>Start with a focus above, or ask your own question.</h2>
-              <p>The assistant gets a compact map first and retrieves only the relevant learner-visible detail.</p>
+      <section className="day-review-chat" aria-label={`${dayLabel} review conversation`} aria-busy={sending}>
+        <div className="day-review-transcript-shell">
+          <div
+            className="day-review-transcript"
+            ref={transcriptRef}
+            role="log"
+            aria-label={`${dayLabel} review messages`}
+            aria-live="polite"
+            onScroll={(event) => {
+              const transcript = event.currentTarget;
+              const atLatest = transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop < 48;
+              stickToLatestRef.current = atLatest;
+              setShowLatest(!atLatest);
+            }}
+          >
+            <div ref={transcriptContentRef}>
+              {loading ? <p className="quiet-copy">Reading this day’s review history…</p> : null}
+              {!loading && session?.messages.length === 0 ? (
+                <div className="day-review-empty">
+                  <p className="eyebrow">Ready when you are</p>
+                  <h2>Start with a focus above, or ask your own question.</h2>
+                  <p>The assistant gets a compact map first and retrieves only the relevant learner-visible detail.</p>
+                </div>
+              ) : null}
+              {session?.messages.map((message) => (
+                <article key={message.messageId} className={`manager-message ${message.role}`}>
+                  <p className="manager-message-role">{message.role === "user" ? "You" : message.role === "assistant" ? "Day review" : "Status"}</p>
+                  {message.role === "assistant" ? (
+                    <SafeMarkdown
+                      markdown={message.text}
+                      headingIdPrefix={`day-review-${message.messageId}-`}
+                      inertLinkTitle="Use the cited source in the workspace or prepared-reference view."
+                      omittedImageLabel="Day review image omitted"
+                      showRawHtmlSource
+                    />
+                  ) : <p>{message.text}</p>}
+                  <time dateTime={message.occurredAt}>{new Date(message.occurredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
+                </article>
+              ))}
+              {sending ? (
+                <p className="day-review-thinking" role="status">
+                  <span aria-hidden="true" /> Reviewing the day map and retrieving relevant sources…
+                </p>
+              ) : null}
             </div>
-          ) : null}
-          {session?.messages.map((message) => (
-            <article key={message.messageId} className={`manager-message ${message.role}`}>
-              <p className="manager-message-role">{message.role === "user" ? "You" : message.role === "assistant" ? "Day review" : "Status"}</p>
-              {message.role === "assistant" ? (
-                <SafeMarkdown
-                  markdown={message.text}
-                  headingIdPrefix={`day-review-${message.messageId}-`}
-                  inertLinkTitle="Use the cited source in the workspace or prepared-reference view."
-                  omittedImageLabel="Day review image omitted"
-                  showRawHtmlSource
-                />
-              ) : <p>{message.text}</p>}
-              <time dateTime={message.occurredAt}>{new Date(message.occurredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
-            </article>
-          ))}
-          {sending ? (
-            <p className="day-review-thinking" role="status">
-              <span aria-hidden="true" /> Reviewing the day map and retrieving relevant sources…
-            </p>
+          </div>
+          {showLatest ? (
+            <button
+              className="manager-latest-button"
+              type="button"
+              aria-label="Jump to latest review message"
+              onClick={() => scrollToLatest()}
+            >
+              <span aria-hidden="true">↓</span> Latest
+            </button>
           ) : null}
         </div>
         <form className="manager-composer" onSubmit={submit}>
           <label htmlFor="day-review-message">Continue this day review</label>
           <textarea
+            ref={composerRef}
             id="day-review-message"
             rows={3}
             maxLength={32_000}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            disabled={session?.unresolvedTurn !== null}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }}
+            disabled={loading || sending || session?.unresolvedTurn !== null}
             aria-describedby={session?.unresolvedTurn ? "day-review-unresolved" : undefined}
-            placeholder="Ask for a recap, one recall question, or help finding a gap…"
+            placeholder={sending
+              ? "Reviewing the day and retrieving relevant sources…"
+              : "Ask for a recap, one recall question, or help finding a gap…"}
           />
-          <div>
-            <span>{draft.length.toLocaleString()} / 32,000</span>
+          <div className="manager-composer-footer">
+            <span className="manager-composer-shortcut">⌘ / Ctrl + Enter to send</span>
+            <span className="manager-composer-count">{draft.length.toLocaleString()} / 32,000</span>
             <button className="primary-button" type="submit" disabled={sending || loading || session?.unresolvedTurn !== null || !draft.trim()}>
-              {sending ? "Reviewing…" : "Send"}
+              {sending ? "Thinking…" : "Send"}
             </button>
           </div>
         </form>

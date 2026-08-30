@@ -65,11 +65,14 @@ describe("DayReviewPage", () => {
       </MemoryRouter>,
     );
     await screen.findByText("Ready when you are");
-    await user.type(screen.getByLabelText("Continue this day review"), "Review this day");
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    const composer = screen.getByLabelText("Continue this day review") as HTMLTextAreaElement;
+    await user.type(composer, "Review this day");
+    await user.keyboard("{Control>}{Enter}{/Control}");
 
     expect(screen.getByText("Review this day")).toBeTruthy();
     expect(screen.getByText(/retrieving relevant sources/)).toBeTruthy();
+    expect(composer.disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Thinking…" })).toBeTruthy();
     expect(fetch.mock.calls[1]?.[0]).toBe("/api/day-review/day1/turns");
 
     await act(async () => {

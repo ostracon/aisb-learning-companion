@@ -7,7 +7,6 @@ import type {
 
 interface EnvelopeOutcome {
   outcome_id: string;
-  text: string;
 }
 
 interface ReviewEnvelope {
@@ -16,18 +15,6 @@ interface ReviewEnvelope {
   selected_outcomes: EnvelopeOutcome[];
   current_question?: { number?: number; outcome_ids?: string[] };
   next_question_required?: boolean;
-}
-
-const MAX_LOCAL_OUTCOME_PREVIEW = 180;
-
-function compactOutcome(text: string): string {
-  const normalized = text.replace(/\s+/gu, " ").trim();
-  if (normalized.length <= MAX_LOCAL_OUTCOME_PREVIEW) return normalized;
-  const sentence = normalized.match(/^.{1,180}?[.!?](?:\s|$)/u)?.[0]?.trim();
-  if (sentence !== undefined) return sentence;
-  const clipped = normalized.slice(0, MAX_LOCAL_OUTCOME_PREVIEW - 1);
-  const lastSpace = clipped.lastIndexOf(" ");
-  return `${clipped.slice(0, Math.max(lastSpace, 1)).trimEnd()}\u2026`;
 }
 
 function parseEnvelope(prompt: string): ReviewEnvelope {
@@ -41,16 +28,18 @@ function parseEnvelope(prompt: string): ReviewEnvelope {
 }
 
 function questionFor(outcome: EnvelopeOutcome, mode: string) {
-  const focus = compactOutcome(outcome.text);
+  // The selected outcome remains visible beside the question in the UI. The
+  // offline fallback deliberately uses a short, fixed retrieval move instead
+  // of echoing a potentially composite outcome into another large task.
   const prompt = mode === "scenario_application"
-    ? `Give one small AI-security scenario that tests this outcome, then state your response: ${focus}`
+    ? "Give one AI-security example that demonstrates this outcome."
     : mode === "compare_contrast"
-      ? `Name one useful contrast that clarifies this outcome: ${focus}`
+      ? "Name one contrast that clarifies this outcome."
       : mode === "explain_back"
-        ? `Explain this outcome to a security colleague in a few sentences: ${focus}`
+        ? "Explain one key idea from this outcome in your own words."
         : mode === "short_answer"
-          ? `Answer this outcome in two or three precise sentences: ${focus}`
-          : `Recall one key idea that demonstrates this outcome: ${focus}`;
+          ? "What single point best demonstrates this outcome?"
+          : "What is the most important idea in this outcome?";
   return { mode, prompt, outcome_ids: [outcome.outcome_id] };
 }
 
