@@ -3289,6 +3289,16 @@ body {
 }
 
 @container (max-width: 51rem) {
+  .note-recovery-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .note-recovery-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
   .note-controls-row {
     flex-wrap: wrap;
   }

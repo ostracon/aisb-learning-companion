@@ -31,6 +31,34 @@ interface NoteControlsProps {
   readonly onNavigate: (routePath: string) => void;
 }
 
+interface SavedNoteCheckpoint {
+  readonly revision: number;
+  readonly contentHash: string;
+}
+
+const sha256Pattern = /^[a-f0-9]{64}$/;
+
+function savedNoteCheckpoint(value: unknown, expectedNoteId: string): SavedNoteCheckpoint {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("The note service returned a malformed response");
+  }
+  const response = value as Record<string, unknown>;
+  if (response.note_id !== expectedNoteId) {
+    throw new Error("The note service responded for a different note");
+  }
+  if (
+    typeof response.revision !== "number"
+    || !Number.isSafeInteger(response.revision)
+    || response.revision < 1
+  ) {
+    throw new Error("The note service returned a malformed revision");
+  }
+  if (typeof response.content_hash !== "string" || !sha256Pattern.test(response.content_hash)) {
+    throw new Error("The note service returned a malformed content hash");
+  }
+  return { revision: response.revision, contentHash: response.content_hash };
+}
+
 async function payload<T>(response: Response, fallback: string): Promise<T> {
   const value = (await response.json()) as T & { error?: string };
   if (!response.ok) throw new Error(value.error ?? fallback);
@@ -58,10 +86,11 @@ export function NoteControls({
   const slug = slugifyQuickNoteName(name).slice(0, Math.max(1, 127 - prefix.length));
   const proposedNoteId = `${prefix}${slug || "name"}`;
   const currentListed = notes.some((note) => note.noteId === currentNoteId);
+  const acknowledgedDiskCheckpoint =
+    currentRevision > 0 && sha256Pattern.test(currentContentHash);
   const canOpenInVSCode =
-    saveStatus === "saved-disk" &&
-    currentRevision > 0 &&
-    /^[a-f0-9]{64}$/.test(currentContentHash);
+    (saveStatus === "saved-disk" && acknowledgedDiskCheckpoint)
+    || saveStatus === "conflict";
 
   const options = useMemo(
     () => notes.filter((note) => {
@@ -127,14 +156,26 @@ export function NoteControls({
     setError(null);
     setOpenResult(null);
     try {
+      // During a conflict, the browser checkpoint deliberately remains bound to
+      // the preserved draft. Read a fresh disk checkpoint so VS Code can inspect
+      // the current Markdown file without resolving or overwriting either copy.
+      const checkpoint = saveStatus === "conflict"
+        ? savedNoteCheckpoint(
+            await payload<unknown>(
+              await fetch(`/api/notes/${encodeURIComponent(currentNoteId)}`),
+              "The current Markdown note could not be read",
+            ),
+            currentNoteId,
+          )
+        : { revision: currentRevision, contentHash: currentContentHash };
       const token = await payload<SavedNoteLaunchToken>(
         await fetch("/api/notes/vscode/prepare", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             note_id: currentNoteId,
-            expected_revision: currentRevision,
-            expected_content_hash: currentContentHash,
+            expected_revision: checkpoint.revision,
+            expected_content_hash: checkpoint.contentHash,
           }),
         }),
         "The saved note could not be prepared for VS Code",
@@ -188,7 +229,11 @@ export function NoteControls({
           className="outline-button note-vscode-button"
           type="button"
           disabled={!canOpenInVSCode || busy}
-          title={canOpenInVSCode ? "Open this saved Markdown note" : "Wait for disk autosave before opening"}
+          title={saveStatus === "conflict"
+            ? "Open the current on-disk Markdown version without resolving the browser draft"
+            : canOpenInVSCode
+              ? "Open this saved Markdown note"
+              : "Wait for disk autosave before opening"}
           onClick={() => void openInVSCode()}
         >
           Open notes in VS Code

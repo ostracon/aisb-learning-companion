@@ -803,7 +803,7 @@ function NotesWorkspace({
 }: NotesWorkspaceProps) {
   return (
     <section className={`notes-section ${className}`.trim()} aria-labelledby="notes-heading">
-      <div className="section-heading-row">
+      <div className="section-heading-row note-heading-row">
         <h2 id="notes-heading">Notes</h2>
         <NoteSaveControls
           status={note.status}
