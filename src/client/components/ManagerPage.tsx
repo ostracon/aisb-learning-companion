@@ -78,7 +78,12 @@ export function ManagerPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showLatest, setShowLatest] = useState(false);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const transcriptContentRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const submittedRef = useRef(false);
+  const stickToLatestRef = useRef(true);
 
   const setDraft = (value: string) => {
     setDraftState(value);
@@ -116,15 +121,46 @@ export function ManagerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
+  const scrollToLatest = (behavior: ScrollBehavior = "auto") => {
     const transcript = transcriptRef.current;
     if (transcript === null) return;
+    stickToLatestRef.current = true;
+    setShowLatest(false);
     if (typeof transcript.scrollTo === "function") {
-      transcript.scrollTo({ top: transcript.scrollHeight });
+      transcript.scrollTo({ top: transcript.scrollHeight, behavior });
     } else {
       transcript.scrollTop = transcript.scrollHeight;
     }
+  };
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => scrollToLatest());
+    return () => window.cancelAnimationFrame(frame);
+  // New canonical or optimistic messages should be brought into view.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.messages.length, sending]);
+
+  useEffect(() => {
+    const content = transcriptContentRef.current;
+    if (content === null || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickToLatestRef.current) scrollToLatest();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  // The observer is bound once to the stable transcript content element.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (
+      !submittedRef.current
+      || sending
+      || loading
+      || session.unresolvedTurn !== null
+    ) return;
+    composerRef.current?.focus({ preventScroll: true });
+  }, [loading, sending, session.unresolvedTurn]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -132,6 +168,10 @@ export function ManagerPage() {
     if (!message || sending || loading || session.unresolvedTurn !== null) return;
     setSending(true);
     setError(null);
+    // Clear the visible composer immediately, but retain its browser recovery
+    // bytes until canonical history confirms the turn.
+    setDraftState("");
+    submittedRef.current = true;
     const clientUserMessageId = crypto.randomUUID();
     const optimistic: ManagerSessionMessageView = {
       messageId: `pending:${clientUserMessageId}`,
@@ -163,6 +203,7 @@ export function ManagerPage() {
       }));
       const failure = reason instanceof Error ? reason.message : "The manager turn failed.";
       await load();
+      setDraft(message);
       setError(failure);
     } finally {
       setSending(false);
@@ -186,16 +227,15 @@ export function ManagerPage() {
           <p className="eyebrow">Across the programme</p>
           <h1>Learning manager</h1>
           <p>
-            Plan, connect, and review using the current schedule, learning outcomes, checked workflow
-            state, saved Markdown notes, bounded prior tutor excerpts, review summaries, and
-            learner-approved continuity summaries.
+            Plan, connect, and review using your schedule, outcomes, notes, prepared references,
+            and recent learning history.
           </p>
         </div>
         <UtilityBackLink />
       </header>
 
       <details className="manager-context-note">
-        <summary>What this conversation can use</summary>
+        <summary>Context snapshot · refreshed on every send</summary>
         <p>
           Each send receives a fresh, bounded snapshot of learner-visible local state, including
           recent tutor excerpts and advisory review summaries. Raw review answers, protected solution
@@ -203,8 +243,9 @@ export function ManagerPage() {
           included. Checked outcomes are workflow state, not proof of mastery.
         </p>
         <p className="manager-visual-link">
-          If a diagram would materially help, <Link to="/visuals">open the visual aid</Link>. It is a
-          separate action with its own reviewed confirmation.
+          For a source-grounded single-day conversation, open that day and select <strong>Review day</strong>.
+          If a diagram would materially help, <Link to="/visuals">open the visual aid</Link>; generation
+          remains a separate confirmed action.
         </p>
       </details>
 
@@ -222,47 +263,87 @@ export function ManagerPage() {
           </button>
         </div>
       ) : null}
-      <section className="manager-chat" aria-label="Learning manager conversation">
-        <div className="manager-transcript" ref={transcriptRef} aria-live="polite">
-          {loading ? <p className="quiet-copy">Reading manager history…</p> : null}
-          {!loading && session.messages.length === 0 ? (
-            <div className="manager-welcome">
-              <p className="eyebrow">A useful first question</p>
-              <h2>What should I revisit, and why?</h2>
-              <p>The manager will point back to your own material and suggest one practical next action.</p>
+      <section className="manager-chat" aria-label="Learning manager conversation" aria-busy={sending}>
+        <div className="manager-transcript-shell">
+          <div
+            className="manager-transcript"
+            ref={transcriptRef}
+            role="log"
+            aria-label="Learning manager messages"
+            aria-live="polite"
+            onScroll={(event) => {
+              const transcript = event.currentTarget;
+              const atLatest = transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop < 48;
+              stickToLatestRef.current = atLatest;
+              setShowLatest(!atLatest);
+            }}
+          >
+            <div className="manager-transcript-content" ref={transcriptContentRef}>
+              {loading ? <p className="quiet-copy">Reading manager history…</p> : null}
+              {!loading && session.messages.length === 0 ? (
+                <div className="manager-welcome">
+                  <p className="eyebrow">A useful first question</p>
+                  <h2>What should I revisit, and why?</h2>
+                  <p>The manager will point back to your own material and suggest one practical next action.</p>
+                </div>
+              ) : null}
+              {session.messages.map((message) => (
+                <article key={message.messageId} className={`manager-message ${message.role}`}>
+                  <p className="manager-message-role">{message.role === "user" ? "You" : message.role === "assistant" ? "Manager" : "Status"}</p>
+                  {message.role === "assistant" ? (
+                    <SafeMarkdown
+                      markdown={message.text}
+                      headingIdPrefix={`manager-${message.messageId}-`}
+                      inertLinkTitle="Manager links are shown as text; open sources from the workspace."
+                      omittedImageLabel="Manager image omitted"
+                      showRawHtmlSource
+                    />
+                  ) : <p>{message.text}</p>}
+                  <time dateTime={message.occurredAt}>{new Date(message.occurredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
+                </article>
+              ))}
+              {sending ? (
+                <p className="manager-thinking" role="status">
+                  <span className="manager-thinking-mark" aria-hidden="true"><i /><i /><i /></span>
+                  Manager is reviewing the latest local context…
+                </p>
+              ) : null}
             </div>
+          </div>
+          {showLatest ? (
+            <button
+              className="manager-latest-button"
+              type="button"
+              aria-label="Jump to latest message"
+              onClick={() => scrollToLatest()}
+            >
+              <span aria-hidden="true">↓</span> Latest
+            </button>
           ) : null}
-          {session.messages.map((message) => (
-            <article key={message.messageId} className={`manager-message ${message.role}`}>
-              <p className="manager-message-role">{message.role === "user" ? "You" : message.role === "assistant" ? "Manager" : "Status"}</p>
-              {message.role === "assistant" ? (
-                <SafeMarkdown
-                  markdown={message.text}
-                  headingIdPrefix={`manager-${message.messageId}-`}
-                  inertLinkTitle="Manager links are shown as text; open sources from the workspace."
-                  omittedImageLabel="Manager image omitted"
-                  showRawHtmlSource
-                />
-              ) : <p>{message.text}</p>}
-              <time dateTime={message.occurredAt}>{new Date(message.occurredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
-            </article>
-          ))}
-          {sending ? <p className="manager-thinking" role="status">Manager is reading the current local context…</p> : null}
         </div>
         <form className="manager-composer" onSubmit={submit}>
           <label htmlFor="manager-message">Message the learning manager</label>
           <textarea
+            ref={composerRef}
             id="manager-message"
-            rows={4}
+            rows={3}
             maxLength={32_000}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            disabled={session.unresolvedTurn !== null}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }}
+            disabled={loading || sending || session.unresolvedTurn !== null}
             aria-describedby={session.unresolvedTurn ? "manager-unresolved-status" : undefined}
-            placeholder="Ask what to revisit, connect, summarise from your notes, or practise next…"
+            placeholder={sending
+              ? "Manager is reviewing your context…"
+              : "Ask what to revisit, connect, summarise from your notes, or practise next…"}
           />
-          <div>
-            <span>{draft.length.toLocaleString()} / 32,000</span>
+          <div className="manager-composer-footer">
+            <span className="manager-composer-shortcut">⌘ / Ctrl + Enter to send</span>
+            <span className="manager-composer-count">{draft.length.toLocaleString()} / 32,000</span>
             <button
               className="primary-button"
               type="submit"

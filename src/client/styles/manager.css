@@ -1,15 +1,32 @@
 .manager-page {
-  width: min(68rem, calc(100% - 2rem));
+  width: min(80rem, calc(100% - 2rem));
   height: 100%;
   min-height: 0;
   margin: 0 auto;
-  padding: 2.5rem 0 1.5rem;
+  padding: 1.25rem 0 0.75rem;
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.manager-page .utility-page-header {
+  gap: 2rem;
+  padding-bottom: 1rem;
+}
+
+.manager-page .utility-page-header h1 {
+  margin: 0.1rem 0 0.4rem;
+  font-size: clamp(2.35rem, 4vw, 3.4rem);
+}
+
+.manager-page .utility-page-header p {
+  max-width: 52rem;
+  margin: 0;
+  line-height: 1.5;
 }
 
 .manager-context-note {
-  padding: 0.9rem 0;
+  padding: 0.7rem 0;
   border-bottom: 1px solid var(--divider);
   color: var(--muted);
 }
@@ -18,13 +35,14 @@
   width: fit-content;
   cursor: pointer;
   color: var(--ink);
+  font-size: 0.82rem;
   font-weight: 650;
 }
 
 .manager-context-note p {
   max-width: 50rem;
-  margin: 0.75rem 0 0;
-  line-height: 1.6;
+  margin: 0.65rem 0 0;
+  line-height: 1.55;
 }
 
 .manager-context-note .manager-visual-link {
@@ -62,15 +80,46 @@
 .manager-chat {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(14rem, 1fr) auto;
+  grid-template-rows: minmax(10rem, 1fr) auto;
   border-bottom: 1px solid var(--divider);
+  overflow: hidden;
+}
+
+.manager-transcript-shell {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .manager-transcript {
+  height: 100%;
   min-height: 0;
-  overflow: auto;
-  padding: 1.5rem 0;
-  scroll-behavior: smooth;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 1.15rem 0.35rem 1rem 0;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.manager-latest-button {
+  position: absolute;
+  right: 1rem;
+  bottom: 0.85rem;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--divider-strong);
+  border-radius: 999px;
+  background: var(--paper-raised);
+  box-shadow: 0 0.3rem 1rem color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.manager-latest-button:hover {
+  border-color: var(--cobalt);
+  color: var(--cobalt);
 }
 
 .manager-welcome {
@@ -89,14 +138,15 @@
 }
 
 .manager-message {
-  width: min(42rem, 88%);
-  margin-bottom: 1.5rem;
+  width: min(50rem, 92%);
+  margin-bottom: 1rem;
   padding: 0.9rem 1rem;
   border-left: 2px solid var(--divider-strong);
   line-height: 1.65;
 }
 
 .manager-message.user {
+  width: min(38rem, 82%);
   margin-left: auto;
   border-left: 0;
   border-right: 2px solid var(--cobalt);
@@ -129,13 +179,39 @@
 }
 
 .manager-thinking {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.75rem 0;
   color: var(--muted);
-  font-style: italic;
+  font-size: 0.86rem;
+}
+
+.manager-thinking-mark {
+  display: inline-flex;
+  gap: 0.18rem;
+}
+
+.manager-thinking-mark i {
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 50%;
+  background: var(--cobalt);
+  animation: manager-thinking-pulse 1.1s ease-in-out infinite;
+}
+
+.manager-thinking-mark i:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.manager-thinking-mark i:nth-child(3) {
+  animation-delay: 240ms;
 }
 
 .manager-composer {
-  padding: 1rem 0 0;
+  padding: 0.75rem 0 0;
   border-top: 1px solid var(--divider);
+  background: var(--paper);
 }
 
 .manager-composer label {
@@ -150,14 +226,22 @@
 
 .manager-composer textarea {
   width: 100%;
-  min-height: 6rem;
+  min-height: 4.5rem;
+  max-height: 10rem;
   padding: 0.8rem 0.9rem;
   border: 1px solid var(--divider-strong);
   border-radius: 0.35rem;
   background: var(--paper-raised);
   color: var(--ink);
-  resize: vertical;
+  resize: none;
   line-height: 1.5;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.manager-composer textarea:focus {
+  border-color: var(--cobalt);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cobalt) 14%, transparent);
+  outline: none;
 }
 
 .manager-composer textarea:disabled {
@@ -166,14 +250,34 @@
   color: var(--muted);
 }
 
-.manager-composer > div {
-  min-height: 2.8rem;
+.manager-composer-footer {
+  min-height: 2.55rem;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 1rem;
   color: var(--faint);
   font-size: 0.75rem;
+}
+
+.manager-composer-shortcut {
+  margin-right: auto;
+}
+
+.manager-composer-count {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes manager-thinking-pulse {
+  0%, 70%, 100% { opacity: 0.28; transform: translateY(0); }
+  35% { opacity: 1; transform: translateY(-0.12rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .manager-thinking-mark i {
+    animation: none;
+    opacity: 0.72;
+  }
 }
 
 @media (max-width: 44rem) {
@@ -189,5 +293,9 @@
   .manager-unresolved {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .manager-composer-shortcut {
+    display: none;
   }
 }
