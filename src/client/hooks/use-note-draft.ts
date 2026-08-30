@@ -755,8 +755,14 @@ export function useNoteDraft(
       const checkpoint = checkpointRef.current;
       valueRef.current = nextValue;
       setValue(nextValue);
-      setStatus("saving-local");
-      if (!blockedByConflictRef.current) setError(null);
+      // A conflict is a stable, learner-actionable state. Keep its recovery
+      // controls mounted while every accepted edit is secured in browser
+      // storage; briefly replacing the conflict with "saving" made the whole
+      // notes header disappear and reappear on each keystroke.
+      if (!blockedByConflictRef.current) {
+        setStatus("saving-local");
+        setError(null);
+      }
       markBrowserDraftAccepted(unloadBatch, editSequence);
 
       void enqueueLocalWrite({

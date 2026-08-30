@@ -123,6 +123,14 @@ describe("useNoteDraft recovery lineage", () => {
       content: "local unsaved text",
       baseContentHash: HASH_A,
     });
+
+    act(() => result.current.updateValue("local unsaved text with another thought"));
+    expect(result.current.status).toBe("conflict");
+    await waitFor(() => expect(result.current.status).toBe("conflict"));
+    await expect(readDraft("note-lineage")).resolves.toMatchObject({
+      content: "local unsaved text with another thought",
+      baseContentHash: HASH_A,
+    });
   });
 
   it("explicitly rebases a preserved browser draft before saving it over a conflict", async () => {
@@ -471,6 +479,61 @@ describe("useNoteDraft save sequencing", () => {
     const safeUnload = new Event("beforeunload", { cancelable: true });
     expect(window.dispatchEvent(safeUnload)).toBe(true);
     expect(safeUnload.defaultPrevented).toBe(false);
+  });
+
+  it("keeps a newly detected disk conflict visible while a later local write settles", async () => {
+    const noteId = "conflict-during-local-write";
+    const firstSave = deferred<Response>();
+    const secondLocalWrite = deferred<void>();
+    let secondLocalWriteStarted = false;
+    const draftStorage = {
+      claimWriterEpoch: claimDraftWriterEpoch,
+      read: readDraft,
+      write: async (draft: BrowserNoteDraft) => {
+        if (draft.content === "Edit B") {
+          secondLocalWriteStarted = true;
+          await secondLocalWrite.promise;
+        }
+        await writeDraft(draft);
+      },
+    };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return jsonResponse(notePayload(noteId, "Disk", 1, HASH_A));
+      }
+      return firstSave.promise;
+    });
+    const { result } = renderHook(() => useNoteDraft(noteId, "Conflict race", {
+      fetch: fetchMock as typeof fetch,
+      now: NOW,
+      diskSaveDelayMs: 0,
+      coordinator: immediateCoordinator,
+      draftStorage,
+    }));
+    await waitFor(() => expect(result.current.status).toBe("saved-disk"));
+
+    act(() => result.current.updateValue("Edit A"));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
+    });
+    act(() => result.current.updateValue("Edit B"));
+    await waitFor(() => expect(secondLocalWriteStarted).toBe(true));
+
+    act(() => firstSave.resolve(jsonResponse({
+      status: "conflict",
+      current: notePayload(noteId, "Other writer", 2, HASH_B),
+      conflict_path: `notes/conflicts/${noteId}-browser.md`,
+    }, 409)));
+    await waitFor(() => expect(result.current.status).toBe("conflict"));
+
+    await act(async () => {
+      secondLocalWrite.resolve(undefined);
+      await secondLocalWrite.promise;
+    });
+    await waitFor(async () => {
+      expect(await readDraft(noteId)).toMatchObject({ content: "Edit B" });
+    });
+    expect(result.current.status).toBe("conflict");
   });
 
   it("rebases and queues an edit made while the prior disk save is in flight", async () => {

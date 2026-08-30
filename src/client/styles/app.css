@@ -1770,6 +1770,7 @@ body {
 .notes-section {
   padding: 0.9rem 0 0;
   border-bottom: 0;
+  container-type: inline-size;
 }
 
 .note-status {
@@ -1797,6 +1798,23 @@ body {
 
 .notes-section .section-heading-row {
   flex-wrap: wrap;
+}
+
+.notes-section .note-heading-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.notes-section .note-heading-row .note-save-controls {
+  min-width: 0;
+  justify-self: end;
+}
+
+.notes-section .note-heading-row .note-save-controls.needs-action {
+  width: 100%;
+  grid-column: 1 / -1;
+  justify-self: stretch;
 }
 
 .note-save-controls.needs-action {
