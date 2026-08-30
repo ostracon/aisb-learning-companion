@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import type { LearningDayId, ProgrammeDayId } from "../../shared/api.js";
+import { noteLogicalPath, type NoteLocator } from "../../shared/notes.js";
 import {
   ContextAssemblyError,
   type AisbFileDescriptor,
@@ -89,6 +90,8 @@ export interface RouteNoteRecord {
   readonly noteId: string;
   readonly kind: "day" | "lesson" | "event" | "ad_hoc";
   readonly persistedRevision: string | null;
+  readonly locator: NoteLocator;
+  readonly logicalPath: string;
 }
 
 export interface RouteNoteAdapter {
@@ -132,6 +135,8 @@ export type BindTutorRouteInput =
       readonly sectionId: string;
       readonly documentId: string;
       readonly materialManifestRevision: string;
+      /** The note currently displayed beside the independently selected material. */
+      readonly noteId: string;
     });
 
 export interface TutorRouteBinding {
@@ -176,6 +181,7 @@ type RouteBindingRecord =
       readonly sectionId: string;
       readonly documentId: string;
       readonly materialManifestRevision: string;
+      readonly noteId: string;
     });
 
 interface LoadedRoute {
@@ -222,6 +228,8 @@ export function createNoteStoreContextAdapter(store: {
       readonly note_id: string;
       readonly note_kind: "day" | "lesson" | "event" | "ad_hoc";
       readonly revision: number;
+      readonly locator: NoteLocator;
+      readonly logical_path: string;
     }[]
   >;
 }): RouteNoteAdapter {
@@ -233,6 +241,8 @@ export function createNoteStoreContextAdapter(store: {
         noteId: summary.note_id,
         kind: summary.note_kind,
         persistedRevision: String(summary.revision),
+        locator: summary.locator,
+        logicalPath: summary.logical_path,
       };
     },
   };
@@ -388,7 +398,7 @@ export function createRoutePageContextRuntime(
   const loadStudyRoute = async (
     binding: Readonly<Extract<RouteBindingRecord, { contextMode: "study" }>>,
   ): Promise<LoadedRoute> => {
-    const [repositorySections, material, repository] = await Promise.all([
+    const [repositorySections, material, repository, selectedNote] = await Promise.all([
       adapters.curriculum.readRepositoryDay(binding.dayId),
       adapters.materials.readForModelContext({
         sectionId: binding.sectionId,
@@ -396,6 +406,7 @@ export function createRoutePageContextRuntime(
         expectedManifestRevision: binding.materialManifestRevision,
       }),
       adapters.repository.read(),
+      adapters.notes.readById(binding.noteId),
     ]);
     const safeSections = repositorySections.map((section) => canonicalSection(section));
     const matchingSections = safeSections.filter(
@@ -419,13 +430,19 @@ export function createRoutePageContextRuntime(
     }
 
     const currentSection = matchingSections[0]!;
+    const scopedNote = requireStudyNoteInDay(
+      selectedNote,
+      binding.noteId,
+      binding.dayId,
+      safeSections,
+    );
     const canonicalOutcomes = canonicalOutcomesForSections(
       [currentSection],
       repository.headCommit,
     );
     const linkedFiles = [readmeDescriptor(currentSection)];
     const expectedNoteId = assertSafeId(
-      `lesson-${currentSection.sectionId}`,
+      scopedNote.noteId,
       "expected note ID",
     );
     const routePath = canonicalStudyRoutePath(
@@ -505,17 +522,30 @@ export function createRoutePageContextRuntime(
       const binding = bindings.get(page.scope.scopeBindingId);
       if (binding === undefined) return null;
       const note = await adapters.notes.readById(noteId);
-      const expectedKind = binding.contextMode === "study"
-        ? "lesson"
-        : binding.eventBindingId === null
-          ? "day"
-          : "event";
+      if (binding.contextMode === "study") {
+        if (binding.noteId !== noteId) return null;
+        const repositorySections = await adapters.curriculum.readRepositoryDay(binding.dayId);
+        const safeSections = repositorySections.map((section) => canonicalSection(section));
+        const scopedNote = studyNoteInDay(
+          note,
+          noteId,
+          binding.dayId,
+          safeSections,
+        );
+        if (scopedNote === null) return null;
+        const result: CanonicalNoteRecord = {
+          noteId,
+          kind: scopedNote.kind,
+          logicalPath: scopedNote.logicalPath,
+          persistedRevision: scopedNote.persistedRevision,
+        };
+        return result;
+      }
+      const expectedKind = binding.eventBindingId === null ? "day" : "event";
       if (note === null || note.noteId !== noteId || note.kind !== expectedKind) return null;
-      const logicalPath = binding.contextMode === "study"
-        ? `notes/lessons/${binding.sectionId}/notes.md`
-        : binding.eventBindingId === null
-          ? `notes/days/${binding.dayId}/overview.md`
-          : `notes/events/${binding.eventBindingId}/notes.md`;
+      const logicalPath = binding.eventBindingId === null
+        ? `notes/days/${binding.dayId}/overview.md`
+        : `notes/events/${binding.eventBindingId}/notes.md`;
       const result: CanonicalNoteRecord = {
         noteId,
         kind: expectedKind,
@@ -590,6 +620,7 @@ export function createRoutePageContextRuntime(
               input.materialManifestRevision,
               "material manifest revision",
             ),
+            noteId: assertSafeId(input.noteId, "Study note ID"),
           };
       const scopeBindingId = `scope:${digest({
         nonce,
@@ -933,6 +964,61 @@ function assertLearningDayId(dayId: string): asserts dayId is LearningDayId {
   if (!LEARNING_DAY_PATTERN.test(dayId)) {
     throw new ContextAssemblyError("INVALID_REQUEST", "Learning day ID is invalid.");
   }
+}
+
+function requireStudyNoteInDay(
+  note: Readonly<RouteNoteRecord> | null,
+  expectedNoteId: string,
+  dayId: LearningDayId,
+  sections: readonly Readonly<RouteCurriculumSectionRecord>[],
+): RouteNoteRecord {
+  const scopedNote = studyNoteInDay(note, expectedNoteId, dayId, sections);
+  if (scopedNote === null) {
+    throw new ContextAssemblyError(
+      "NOTE_SCOPE_MISMATCH",
+      "The selected note does not belong to this repository day.",
+    );
+  }
+  return scopedNote;
+}
+
+function studyNoteInDay(
+  note: Readonly<RouteNoteRecord> | null,
+  expectedNoteId: string,
+  dayId: LearningDayId,
+  sections: readonly Readonly<RouteCurriculumSectionRecord>[],
+): RouteNoteRecord | null {
+  if (note === null || note.noteId !== expectedNoteId || note.kind !== note.locator.kind) {
+    return null;
+  }
+
+  let canonicalLogicalPath: string;
+  try {
+    canonicalLogicalPath = noteLogicalPath(note.locator);
+  } catch {
+    return null;
+  }
+  if (note.logicalPath !== canonicalLogicalPath) return null;
+
+  if (note.kind === "lesson" && note.locator.kind === "lesson") {
+    const sectionIds = new Set(sections.map((section) => section.sectionId));
+    return note.noteId === `lesson-${note.locator.section_id}`
+      && sectionIds.has(note.locator.section_id)
+      ? note
+      : null;
+  }
+
+  if (note.kind === "ad_hoc" && note.locator.kind === "ad_hoc") {
+    const prefix = `${dayId}_quicknote_`;
+    const suffix = note.noteId.slice(prefix.length);
+    return note.noteId.startsWith(prefix)
+      && note.locator.note_id === note.noteId
+      && /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(suffix)
+      ? note
+      : null;
+  }
+
+  return null;
 }
 
 function assertSafeId(value: string, label: string): string {

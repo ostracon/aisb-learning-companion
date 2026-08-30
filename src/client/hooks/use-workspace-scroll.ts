@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 
 export const historyWorkspaceScrollKey = "aisbWorkspaceScroll";
+export const historyWorkspaceScrollCarryKey = "aisbWorkspaceScrollCarry";
 const historyEntryIdKey = "aisbHistoryEntryId";
 
 export interface WorkspaceScrollLocation {
@@ -8,6 +9,7 @@ export interface WorkspaceScrollLocation {
   readonly pathname: string;
   readonly search: string;
   readonly hash: string;
+  readonly state?: unknown;
 }
 
 export interface WorkspaceScrollSnapshot {
@@ -16,6 +18,16 @@ export interface WorkspaceScrollSnapshot {
   readonly route: string;
   readonly top: number;
   readonly left: number;
+}
+
+export interface WorkspaceScrollPosition {
+  readonly top: number;
+  readonly left: number;
+}
+
+interface WorkspaceScrollCarry extends WorkspaceScrollPosition {
+  readonly version: 1;
+  readonly route: string;
 }
 
 interface ArrivalState {
@@ -36,6 +48,57 @@ function historyRecord(): Record<string, unknown> {
 
 function safeOffset(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function readWorkspaceScrollCarry(
+  location: Pick<WorkspaceScrollLocation, "pathname" | "search" | "hash" | "state">,
+): WorkspaceScrollCarry | null {
+  const candidate = recordValue(location.state)[historyWorkspaceScrollCarryKey];
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return null;
+  }
+  const carry = candidate as Partial<WorkspaceScrollCarry>;
+  if (
+    carry.version !== 1 ||
+    carry.route !== routeIdentity(location) ||
+    !safeOffset(carry.top) ||
+    !safeOffset(carry.left)
+  ) {
+    return null;
+  }
+  return {
+    version: 1,
+    route: carry.route,
+    top: carry.top,
+    left: carry.left,
+  };
+}
+
+/**
+ * Adds a one-navigation scroll handoff to React Router location state. The
+ * destination route is embedded in the handoff so copied or stale state
+ * cannot suppress normal top-of-page navigation on a different route.
+ */
+export function createWorkspaceScrollCarryState(
+  currentState: unknown,
+  destination: Pick<WorkspaceScrollLocation, "pathname" | "search" | "hash">,
+  position: WorkspaceScrollPosition,
+): Record<string, unknown> {
+  const state = recordValue(currentState);
+  if (!safeOffset(position.top) || !safeOffset(position.left)) return state;
+  const carry: WorkspaceScrollCarry = {
+    version: 1,
+    route: routeIdentity(destination),
+    top: position.top,
+    left: position.left,
+  };
+  return { ...state, [historyWorkspaceScrollCarryKey]: carry };
 }
 
 export function readWorkspaceScrollSnapshot(
@@ -123,7 +186,9 @@ export function useWorkspaceScrollRestoration(
   if (arrivalRef.current?.locationKey !== location.key) {
     arrivalRef.current = {
       locationKey: location.key,
-      hadSnapshot: readWorkspaceScrollSnapshot(location) !== null,
+      hadSnapshot:
+        readWorkspaceScrollSnapshot(location) !== null ||
+        readWorkspaceScrollCarry(location) !== null,
     };
   }
 
@@ -133,7 +198,8 @@ export function useWorkspaceScrollRestoration(
     if (!element) return;
 
     const saved = readWorkspaceScrollSnapshot(location);
-    const target = saved ?? {
+    const carried = readWorkspaceScrollCarry(location);
+    const target = saved ?? carried ?? {
       version: 1 as const,
       historyEntryId: ensureHistoryEntryId(),
       route: routeIdentity(location),

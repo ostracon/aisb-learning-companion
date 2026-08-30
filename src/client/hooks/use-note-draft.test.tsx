@@ -92,6 +92,98 @@ describe("new note template", () => {
   });
 });
 
+describe("useNoteDraft opening mode", () => {
+  it("GETs an existing query-selected note without using the create endpoint", async () => {
+    const noteId = "lesson-1.1";
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(notePayload(noteId, "Earlier topic notes", 4, HASH_D)),
+    );
+
+    const { result } = renderHook(() =>
+      useNoteDraft(noteId, "Earlier topic", {
+        fetch: fetchMock as typeof fetch,
+        now: NOW,
+        diskSaveDelayMs: 0,
+        coordinator: immediateCoordinator,
+        openExistingOnly: true,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("saved-disk"));
+    expect(result.current.value).toBe("Earlier topic notes");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/notes/lesson-1.1",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("never POST-creates a missing existing-only note, including after Retry", async () => {
+    const noteId = "day1_quicknote_stale";
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({ error: "Note not found", code: "note_not_found" }, 404),
+    );
+
+    const { result } = renderHook(() =>
+      useNoteDraft(noteId, "Stale quick note", {
+        fetch: fetchMock as typeof fetch,
+        now: NOW,
+        diskSaveDelayMs: 0,
+        coordinator: immediateCoordinator,
+        openExistingOnly: true,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("offline"));
+    act(() => result.current.retryDiskSave());
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.status).toBe("offline"));
+
+    expect(fetchMock.mock.calls).toEqual([
+      [
+        "/api/notes/day1_quicknote_stale",
+        expect.objectContaining({ method: "GET" }),
+      ],
+      [
+        "/api/notes/day1_quicknote_stale",
+        expect.objectContaining({ method: "GET" }),
+      ],
+    ]);
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+  });
+
+  it("does not identify a newly selected note as loaded until that exact reconciliation finishes", async () => {
+    const nextNote = deferred<Response>();
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? requestBody(init) : {};
+      return body.note_id === "note-next"
+        ? nextNote.promise
+        : jsonResponse(notePayload("note-current", "Current note", 1, HASH_A));
+    });
+    const { result, rerender } = renderHook(
+      ({ noteId }) => useNoteDraft(noteId, "Route note", {
+        fetch: fetchMock as typeof fetch,
+        now: NOW,
+        coordinator: immediateCoordinator,
+      }),
+      { initialProps: { noteId: "note-current" } },
+    );
+
+    await waitFor(() => expect(result.current.loadedNoteId).toBe("note-current"));
+    rerender({ noteId: "note-next" });
+    expect(result.current.loadedNoteId).not.toBe("note-next");
+
+    await act(async () => {
+      nextNote.resolve(jsonResponse(notePayload("note-next", "Next note", 2, HASH_B)));
+      await nextNote.promise;
+    });
+    await waitFor(() => expect(result.current.loadedNoteId).toBe("note-next"));
+    expect(result.current.value).toBe("Next note");
+  });
+});
+
 describe("useNoteDraft recovery lineage", () => {
   it("does not pair a stale local revision with the hash of a manual disk edit", async () => {
     await writeDraft({

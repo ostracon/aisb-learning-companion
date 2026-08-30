@@ -71,6 +71,13 @@ interface ActiveDiskSave {
 export interface UseNoteDraftOptions {
   readonly fetch?: typeof globalThis.fetch;
   readonly now?: () => Date;
+  /**
+   * Opens an already-listed note without allowing the note service to create
+   * it. Use this for note IDs selected from navigation state such as a query
+   * parameter; a stale or forged ID then remains a failed read rather than
+   * creating a new Markdown file.
+   */
+  readonly openExistingOnly?: boolean;
   readonly diskSaveDelayMs?: number;
   readonly handoffDrainTimeoutMs?: number;
   readonly coordinator?: NoteEditCoordinator;
@@ -247,6 +254,7 @@ export function useNoteDraft(
 ) {
   const fetchImpl = options.fetch ?? defaultFetch;
   const now = options.now ?? defaultNow;
+  const openExistingOnly = options.openExistingOnly ?? false;
   const diskSaveDelayMs = options.diskSaveDelayMs ?? defaultDiskSaveDelayMs;
   const handoffDrainTimeoutMs = Math.max(
     0,
@@ -267,6 +275,7 @@ export function useNoteDraft(
   const [coordinationStatus, setCoordinationStatus] =
     useState<NoteCoordinationStatus>("acquiring");
   const [coordinationError, setCoordinationError] = useState<string | null>(null);
+  const [loadedNoteId, setLoadedNoteId] = useState<string | null>(null);
   const [ownerToken, setOwnerToken] = useState(0);
   const [reloadSequence, setReloadSequence] = useState(0);
   const [coordinationRetrySequence, setCoordinationRetrySequence] = useState(0);
@@ -331,6 +340,7 @@ export function useNoteDraft(
     setDiskRecoveryAvailable(false);
     setStatus("loading");
     setError(null);
+    setLoadedNoteId(null);
     setCoordinationStatus("acquiring");
     setCoordinationError(null);
     setOwnerToken(0);
@@ -380,6 +390,7 @@ export function useNoteDraft(
           activeOwnerTokenRef.current = token;
           loadedRef.current = false;
           canEditRef.current = false;
+          setLoadedNoteId(null);
           setCoordinationStatus("reconciling");
           setCoordinationError(null);
           setStatus("loading");
@@ -404,6 +415,7 @@ export function useNoteDraft(
               activeOwnerTokenRef.current = null;
               loadedRef.current = false;
               canEditRef.current = false;
+              setLoadedNoteId(null);
               setCoordinationStatus("coordination-error");
               setCoordinationError(
                 errorMessage(reason, "Local note ownership could not be secured"),
@@ -436,6 +448,7 @@ export function useNoteDraft(
           activeOwnerTokenRef.current = null;
           loadedRef.current = false;
           canEditRef.current = false;
+          setLoadedNoteId(null);
           setCoordinationStatus("coordination-error");
           setCoordinationError(reason.message);
           void loadViewerDraft();
@@ -447,6 +460,7 @@ export function useNoteDraft(
       activeOwnerTokenRef.current = null;
       loadedRef.current = false;
       canEditRef.current = false;
+      setLoadedNoteId(null);
       setCoordinationStatus("coordination-error");
       setCoordinationError(
         errorMessage(reason, "Safe multi-tab note coordination could not start"),
@@ -547,13 +561,24 @@ export function useNoteDraft(
     setCoordinationStatus("reconciling");
     setStatus("loading");
     setError(null);
+    setLoadedNoteId(null);
 
-    const diskRequest = fetchImpl("/api/notes", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ note_id: noteId, title: titleAtLoad }),
-      signal: controller.signal,
-    }).then(async (response) => {
+    const diskRequest = fetchImpl(
+      openExistingOnly
+        ? `/api/notes/${encodeURIComponent(noteId)}`
+        : "/api/notes",
+      openExistingOnly
+        ? {
+            method: "GET",
+            signal: controller.signal,
+          }
+        : {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ note_id: noteId, title: titleAtLoad }),
+            signal: controller.signal,
+          },
+    ).then(async (response) => {
       const payload = (await response.json()) as unknown;
       if (!response.ok) {
         const detail = isRecord(payload) && typeof payload.error === "string"
@@ -687,6 +712,7 @@ export function useNoteDraft(
           }
           loadedRef.current = true;
           canEditRef.current = true;
+          setLoadedNoteId(noteId);
           setCoordinationStatus("editing");
           setStatus(finalStatus);
         };
@@ -741,6 +767,7 @@ export function useNoteDraft(
     fetchImpl,
     noteId,
     now,
+    openExistingOnly,
     ownerToken,
     reloadSequence,
   ]);
@@ -1193,6 +1220,7 @@ export function useNoteDraft(
     canEdit: coordinationStatus === "editing" && loadedRef.current,
     coordinationStatus,
     coordinationError,
+    loadedNoteId,
     retryDiskSave,
     resolveConflict,
     recoverDiskFile,

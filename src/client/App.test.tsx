@@ -356,4 +356,29 @@ describe("TutorContinuityControls", () => {
     expect(save).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/it is not sent to a model/i)).toBeTruthy();
   });
+
+  it("does not approve a reference note reflection against the visible section's tutor thread", () => {
+    render(
+      <TutorContinuityControls
+        reflection="A reflection from an earlier topic."
+        noteStatus="saved-disk"
+        completedTurnId="turn-current"
+        summaries={[]}
+        selectedSummaryIds={[]}
+        loading={false}
+        loadError={null}
+        saveState="idle"
+        saveError={null}
+        sending={false}
+        reflectionSaveBlockedReason="Switch back to this section’s note before saving a reflection for this tutor thread."
+        onSave={vi.fn()}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(
+      (screen.getByRole("button", { name: "Save ## Reflection locally" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText(/Switch back to this section’s note/)).toBeTruthy();
+  });
 });

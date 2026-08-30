@@ -48,9 +48,17 @@ import {
 } from "./hooks/use-note-draft.js";
 import { useLearningProgress } from "./hooks/use-learning-progress.js";
 import { useWorkspaceLayout } from "./hooks/use-workspace-layout.js";
-import { useWorkspaceScrollRestoration } from "./hooks/use-workspace-scroll.js";
+import {
+  createWorkspaceScrollCarryState,
+  useWorkspaceScrollRestoration,
+} from "./hooks/use-workspace-scroll.js";
 import { useTutorSession } from "./hooks/use-tutor-session.js";
 import { curriculumSectionsForTodaySelection } from "./curriculum/today-sections.js";
+import {
+  materialHrefWithStudyNote,
+  readStudyNoteOverride,
+  studyNoteSelectionHref,
+} from "./study-note-routing.js";
 
 const PreparePage = lazy(async () => {
   const module = await import("./components/PreparePage.js");
@@ -525,6 +533,7 @@ export function TutorContinuityControls({
   saveState,
   saveError,
   sending,
+  reflectionSaveBlockedReason = null,
   onSave,
   onToggle,
 }: {
@@ -538,14 +547,21 @@ export function TutorContinuityControls({
   readonly saveState: ContinuitySaveState;
   readonly saveError: string | null;
   readonly sending: boolean;
+  readonly reflectionSaveBlockedReason?: string | null;
   readonly onSave: () => void;
   readonly onToggle: (summaryId: string, selected: boolean) => void;
 }) {
   const selected = new Set(selectedSummaryIds);
   const reflectionReady = reflection.length > 0;
   const autosaved = isReflectionAutosaved(noteStatus);
-  const canSave = completedTurnId !== null && reflectionReady && autosaved && saveState !== "saving";
-  const saveGuidance = completedTurnId === null
+  const canSave = reflectionSaveBlockedReason === null
+    && completedTurnId !== null
+    && reflectionReady
+    && autosaved
+    && saveState !== "saving";
+  const saveGuidance = reflectionSaveBlockedReason !== null
+    ? reflectionSaveBlockedReason
+    : completedTurnId === null
     ? "Complete a tutor exchange before approving a reflection."
     : !reflectionReady
       ? "Add a short reflection beneath the note’s ## Reflection heading."
@@ -786,7 +802,8 @@ interface NotesWorkspaceProps {
     readonly retryCoordination: () => void;
   };
   readonly sections: readonly CurriculumSectionView[];
-  readonly onNavigate: (path: string) => void;
+  readonly availableNoteSectionIds: readonly string[];
+  readonly onOpenNote: (noteId: string, routePath: string) => void;
   readonly tutorContextStatus: string;
   readonly className?: string;
 }
@@ -797,7 +814,8 @@ function NotesWorkspace({
   noteId,
   note,
   sections,
-  onNavigate,
+  availableNoteSectionIds,
+  onOpenNote,
   tutorContextStatus,
   className = "",
 }: NotesWorkspaceProps) {
@@ -816,12 +834,12 @@ function NotesWorkspace({
       <NoteControls
         dayId={dayId}
         scopeMode={scopeMode}
-        sectionIds={sections.map((section) => section.sectionId)}
+        sectionIds={availableNoteSectionIds}
         currentNoteId={noteId}
         currentRevision={note.baseRevision}
         currentContentHash={note.baseContentHash}
         saveStatus={note.status}
-        onNavigate={onNavigate}
+        onOpenNote={onOpenNote}
       />
       {note.coordinationStatus === "editing" ? null : (
         <div
@@ -1090,14 +1108,24 @@ function WorkspacePage({
     ? selectedSection === null ? [] : [selectedSection]
     : selectedEventLinkedSections;
   const outcomes = sections.flatMap((section) => section.outcomes.map((outcome) => ({ section, outcome })));
-  const noteId = params.noteId
-    ?? (isStudy && selectedSection
-      ? `lesson-${selectedSection.sectionId}`
-      : selectedEvent
-        ? `event-${selectedEvent.eventBindingId}`
-        : `day-${selectedDayId}`);
+  const defaultNoteId = isStudy && selectedSection
+    ? `lesson-${selectedSection.sectionId}`
+    : selectedEvent
+      ? `event-${selectedEvent.eventBindingId}`
+      : `day-${selectedDayId}`;
+  const studyNoteOverride = isStudy
+    ? readStudyNoteOverride(
+        location.search,
+        selectedDayId,
+        daySections.map((section) => section.sectionId),
+        defaultNoteId,
+      )
+    : { noteId: null, shouldCanonicalize: false };
+  const noteId = params.noteId ?? studyNoteOverride.noteId ?? defaultNoteId;
   const noteTitle = params.noteId
     ? "Standalone note"
+    : studyNoteOverride.noteId
+      ? "Selected Study note"
     : isStudy && selectedSection
       ? `${selectedSection.sectionId} · ${selectedSection.title}`
     : selectedEvent
@@ -1105,7 +1133,14 @@ function WorkspacePage({
       : selectedDay.date === null
         ? selectedDay.title
         : `${selectedDay.title} · ${formatProgrammeDate(selectedDay.date)}`;
-  const note = useNoteDraft(noteId, noteTitle);
+  const note = useNoteDraft(noteId, noteTitle, {
+    openExistingOnly: isStudy && studyNoteOverride.noteId !== null,
+  });
+
+  useEffect(() => {
+    if (!isStudy || !studyNoteOverride.shouldCanonicalize) return;
+    navigate(studyNoteSelectionHref(location, defaultNoteId, defaultNoteId), { replace: true });
+  }, [defaultNoteId, isStudy, location, navigate, studyNoteOverride.shouldCanonicalize]);
   const [showAllOutcomes, setShowAllOutcomes] = useState(false);
   const [outcomesExpanded, setOutcomesExpanded] = useState(true);
   const [assistantMode, setAssistantMode] = useState<"tutor" | "review">("tutor");
@@ -1125,6 +1160,8 @@ function WorkspacePage({
     studyMaterialContext.documentId === params.documentId
   );
   const tutorAvailable = params.noteId === undefined && studyContextReady;
+  const tutorNoteReady = note.loadedNoteId === noteId;
+  const tutorCanSend = tutorAvailable && tutorNoteReady;
   const tutorScope = useMemo<TutorSessionScopeRequest | null>(() => {
     if (!tutorAvailable) return null;
     if (isStudy) {
@@ -1344,6 +1381,7 @@ function WorkspacePage({
       || sourceTurnId === undefined
       || reflection.length === 0
       || !isReflectionAutosaved(note.status)
+      || (isStudy && studyNoteOverride.noteId !== null)
       || continuitySaveState === "saving"
     ) {
       return;
@@ -1384,7 +1422,7 @@ function WorkspacePage({
 
   const sendTutorMessage = () => {
     const learnerText = composer;
-    if (!learnerText.trim() || tutorEntryLocked || !tutorAvailable) return;
+    if (!learnerText.trim() || tutorEntryLocked || !tutorCanSend) return;
     if (isStudy && (selectedSection === null || studyMaterialContext === null)) return;
     keepMessageTailVisibleRef.current = true;
     const requestIds = isStudy
@@ -1484,7 +1522,45 @@ function WorkspacePage({
       ? "Choose a repository section to prepare tutor context"
       : isStudy && !studyContextReady
         ? "Preparing repository context for the tutor…"
+        : !tutorNoteReady
+          ? "Preparing the selected note for the tutor…"
+        : isStudy && studyNoteOverride.noteId !== null
+          ? "Tutor context ready · selected note draft will be sent with the next tutor turn"
         : "Tutor context ready · live draft will be sent with the next tutor turn";
+  const openNote = useCallback((selectedNoteId: string, routePath: string) => {
+    if (!isStudy) {
+      navigate(routePath);
+      return;
+    }
+    const target = studyNoteSelectionHref(location, selectedNoteId, defaultNoteId);
+    const current = `${location.pathname}${location.search}${location.hash}`;
+    if (target === current) return;
+    const destinationUrl = new URL(target, window.location.origin);
+    const destination = {
+      pathname: destinationUrl.pathname,
+      search: destinationUrl.search,
+      hash: destinationUrl.hash,
+    };
+    const scroller = workspaceScroll.scrollRef.current;
+    navigate(target, {
+      state: createWorkspaceScrollCarryState(location.state, destination, {
+        top: scroller?.scrollTop ?? 0,
+        left: scroller?.scrollLeft ?? 0,
+      }),
+    });
+  }, [
+    defaultNoteId,
+    isStudy,
+    location,
+    navigate,
+    workspaceScroll.scrollRef,
+  ]);
+  const navigateStudyMaterial = useCallback((path: string, options?: { replace?: boolean }) => {
+    navigate(
+      materialHrefWithStudyNote(path, selectedDayId, studyNoteOverride.noteId),
+      options,
+    );
+  }, [navigate, selectedDayId, studyNoteOverride.noteId]);
   const activeReviewScopeKey = reviewPanelScopeKey({
     contextMode: viewMode,
     dayId: selectedDayId,
@@ -1883,7 +1959,7 @@ function WorkspacePage({
                       selectedDocumentId={params.documentId ?? null}
                       selectedFragment={location.hash.startsWith("#") ? location.hash.slice(1) : null}
                       allowFragmentScroll={!workspaceScroll.arrivedWithSavedPosition}
-                      onNavigate={navigate}
+                      onNavigate={navigateStudyMaterial}
                       onContextChanged={setStudyMaterialContext}
                     />
                   </div>
@@ -1903,7 +1979,8 @@ function WorkspacePage({
                   noteId={noteId}
                   note={note}
                   sections={sections}
-                  onNavigate={(routePath) => navigate(routePath)}
+                  availableNoteSectionIds={daySections.map((section) => section.sectionId)}
+                  onOpenNote={openNote}
                   tutorContextStatus={noteTutorContextStatus}
                 />
               </div>
@@ -1914,7 +1991,8 @@ function WorkspacePage({
                 noteId={noteId}
                 note={note}
                 sections={sections}
-                onNavigate={(routePath) => navigate(routePath)}
+                availableNoteSectionIds={sections.map((section) => section.sectionId)}
+                onOpenNote={openNote}
                 tutorContextStatus={noteTutorContextStatus}
               />
             )}
@@ -1960,7 +2038,9 @@ function WorkspacePage({
                 {tutorScopeLabel}
                 <br />
                 — {tutorAvailable
-                  ? `${outcomes.length} outcomes · live note draft ready`
+                  ? tutorNoteReady
+                    ? `${outcomes.length} outcomes · live note draft ready`
+                    : `${outcomes.length} outcomes · preparing selected note`
                   : isStudy
                     ? "Open a repository document to bind the tutor"
                     : "Standalone note · open a day or Study section to chat with curriculum context"}
@@ -2051,6 +2131,9 @@ function WorkspacePage({
                 saveState={continuitySaveState}
                 saveError={continuitySaveError}
                 sending={sending || tutorSession.activeTurn !== null}
+                reflectionSaveBlockedReason={isStudy && studyNoteOverride.noteId !== null
+                  ? "Switch back to this section’s note before saving a reflection for this tutor thread."
+                  : null}
                 onSave={saveContinuityReflection}
                 onToggle={toggleContinuitySummary}
               />
@@ -2092,11 +2175,13 @@ function WorkspacePage({
                       ? "Tutor is thinking…"
                       : tutorSession.unresolvedMessage !== null
                         ? "Resolve the pending message before continuing."
-                        : tutorAvailable
+                        : tutorAvailable && !tutorNoteReady
+                          ? "Preparing the selected note for Tutor…"
+                        : tutorCanSend
                           ? "Ask for a nudge, explain your attempt, or review an answer under ## Questions…"
                           : "Open a day or Study section to chat with its curriculum context."}
                     value={tutorEntryLocked ? "" : composer}
-                    disabled={!tutorAvailable || tutorEntryLocked}
+                    disabled={!tutorCanSend || tutorEntryLocked}
                     onChange={(event) => setComposer(event.currentTarget.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -2105,7 +2190,7 @@ function WorkspacePage({
                       }
                     }}
                   />
-                  <button className="send-button" type="button" disabled={!composer.trim() || tutorEntryLocked || !tutorAvailable} onClick={sendTutorMessage}>
+                  <button className="send-button" type="button" disabled={!composer.trim() || tutorEntryLocked || !tutorCanSend} onClick={sendTutorMessage}>
                     <span aria-hidden="true">→</span><span className="sr-only">Send</span>
                   </button>
                 </div>

@@ -28,7 +28,7 @@ interface NoteControlsProps {
   readonly currentRevision: number;
   readonly currentContentHash: string;
   readonly saveStatus: NoteSaveStatus;
-  readonly onNavigate: (routePath: string) => void;
+  readonly onOpenNote: (noteId: string, routePath: string) => void;
 }
 
 interface SavedNoteCheckpoint {
@@ -73,7 +73,7 @@ export function NoteControls({
   currentRevision,
   currentContentHash,
   saveStatus,
-  onNavigate,
+  onOpenNote,
 }: NoteControlsProps) {
   const [notes, setNotes] = useState<NoteListItemView[]>([]);
   const [showCreate, setShowCreate] = useState(false);
@@ -85,26 +85,48 @@ export function NoteControls({
   const prefix = `${dayId}_quicknote_`;
   const slug = slugifyQuickNoteName(name).slice(0, Math.max(1, 127 - prefix.length));
   const proposedNoteId = `${prefix}${slug || "name"}`;
-  const currentListed = notes.some((note) => note.noteId === currentNoteId);
   const acknowledgedDiskCheckpoint =
     currentRevision > 0 && sha256Pattern.test(currentContentHash);
   const canOpenInVSCode =
     (saveStatus === "saved-disk" && acknowledgedDiskCheckpoint)
     || saveStatus === "conflict";
 
-  const options = useMemo(
-    () => notes.filter((note) => {
-      if (note.status === "archived") return false;
-      if (note.noteId === currentNoteId || note.noteId.startsWith(prefix)) return true;
-      if (scopeMode === "today") {
-        return note.routePath === `/day/${dayId}`
-          || note.routePath.startsWith(`/day/${dayId}/event/`);
-      }
-      if (note.noteKind !== "lesson") return false;
-      return sectionIds.some((sectionId) => note.logicalPath === `notes/lessons/${sectionId}/notes.md`);
-    }),
-    [currentNoteId, dayId, notes, prefix, scopeMode, sectionIds],
-  );
+  const { options, quickNoteOptions, topicNoteOptions } = useMemo(() => {
+    const nonArchivedNotes = notes.filter((note) => note.status !== "archived");
+    const activeNotes = nonArchivedNotes.filter((note) => note.status === "active");
+    const quickNotes = activeNotes.filter(
+      (note) => note.noteKind === "ad_hoc" && note.noteId.startsWith(prefix),
+    );
+
+    if (scopeMode === "study") {
+      const sectionOrder = new Map<string, number>(sectionIds.map((sectionId, index) => (
+        [`notes/lessons/${sectionId}/notes.md`, index] as const
+      )));
+      const topicNotes = activeNotes
+        .filter((note) => {
+          if (note.noteKind !== "lesson") return false;
+          return sectionOrder.has(note.logicalPath);
+        })
+        .sort((left, right) => (
+          (sectionOrder.get(left.logicalPath) ?? Number.MAX_SAFE_INTEGER)
+          - (sectionOrder.get(right.logicalPath) ?? Number.MAX_SAFE_INTEGER)
+        ));
+      return {
+        options: [...topicNotes, ...quickNotes],
+        quickNoteOptions: quickNotes,
+        topicNoteOptions: topicNotes,
+      };
+    }
+
+    const todayNotes = nonArchivedNotes.filter((note) => (
+      note.noteId === currentNoteId
+      || note.noteId.startsWith(prefix)
+      || note.routePath === `/day/${dayId}`
+      || note.routePath.startsWith(`/day/${dayId}/event/`)
+    ));
+    return { options: todayNotes, quickNoteOptions: [], topicNoteOptions: [] };
+  }, [currentNoteId, dayId, notes, prefix, scopeMode, sectionIds]);
+  const currentListed = options.some((note) => note.noteId === currentNoteId);
   const currentOption = options.find((note) => note.noteId === currentNoteId) ?? null;
 
   useEffect(() => {
@@ -142,7 +164,7 @@ export function NoteControls({
       );
       setShowCreate(false);
       setName("");
-      onNavigate(`/notes/${prefix}${slug}`);
+      onOpenNote(`${prefix}${slug}`, `/notes/${prefix}${slug}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The named note could not be created");
     } finally {
@@ -214,11 +236,28 @@ export function NoteControls({
             value={currentListed ? currentNoteId : ""}
             onChange={(event) => {
               const selected = options.find((note) => note.noteId === event.currentTarget.value);
-              if (selected) onNavigate(selected.routePath);
+              if (selected) onOpenNote(selected.noteId, selected.routePath);
             }}
           >
             {!currentListed ? <option value="">Current note · loading index…</option> : null}
-            {options.map((note) => (
+            {scopeMode === "study" ? (
+              <>
+                <optgroup label="Topic notes">
+                  {topicNoteOptions.map((note) => (
+                    <option key={note.noteId} value={note.noteId}>
+                      {note.hasLearnerContent ? `* ${note.title} (changed)` : note.title} · {note.logicalPath}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Quick notes">
+                  {quickNoteOptions.map((note) => (
+                    <option key={note.noteId} value={note.noteId}>
+                      {note.hasLearnerContent ? `* ${note.title} (changed)` : note.title} · {note.logicalPath}
+                    </option>
+                  ))}
+                </optgroup>
+              </>
+            ) : options.map((note) => (
               <option key={note.noteId} value={note.noteId}>
                 {note.hasLearnerContent ? `* ${note.title} (changed)` : note.title} · {note.logicalPath}
               </option>

@@ -1139,6 +1139,7 @@ export class TutorService {
               sectionId: input.sectionId,
               documentId: input.documentId,
               materialManifestRevision: input.materialManifestRevision,
+              noteId: input.noteDraft.noteId,
               historyEntryId: input.historyEntryId,
               chatId: threadBinding.chatId,
               threadId: threadBinding.threadId,

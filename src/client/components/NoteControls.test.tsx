@@ -18,7 +18,7 @@ function jsonResponse(value: unknown, status = 200): Response {
   });
 }
 
-const currentNoteId = "lesson:day1:1.0";
+const currentNoteId = "lesson-1.0";
 const staleHash = "a".repeat(64);
 const diskHash = "b".repeat(64);
 
@@ -32,7 +32,7 @@ function renderControls(saveStatus: "saved-disk" | "conflict") {
       currentRevision={1}
       currentContentHash={staleHash}
       saveStatus={saveStatus}
-      onNavigate={() => undefined}
+      onOpenNote={() => undefined}
     />,
   );
 }
@@ -46,12 +46,23 @@ describe("quick-note naming", () => {
 });
 
 describe("note picker markers", () => {
-  it("marks notes that differ from their blank template", async () => {
-    const onNavigate = vi.fn();
+  it("groups and orders the current day's Study notes while excluding unrelated notes", async () => {
+    const onOpenNote = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) !== "/api/notes") throw new Error(`Unexpected fetch: ${String(input)}`);
       return jsonResponse({
         notes: [
+          {
+            noteId: "lesson-1.1",
+            noteKind: "lesson",
+            title: "Chat serialization",
+            revision: 1,
+            status: "active",
+            lastModifiedAt: "2026-08-30T20:05:00.000Z",
+            logicalPath: "notes/lessons/1.1/notes.md",
+            routePath: "/study/day1/section/1.1",
+            hasLearnerContent: false,
+          },
           {
             noteId: currentNoteId,
             noteKind: "lesson",
@@ -61,6 +72,17 @@ describe("note picker markers", () => {
             lastModifiedAt: "2026-08-30T20:00:00.000Z",
             logicalPath: "notes/lessons/1.0/notes.md",
             routePath: "/study/day1/section/1.0",
+            hasLearnerContent: true,
+          },
+          {
+            noteId: "day1_quicknote_recent",
+            noteKind: "ad_hoc",
+            title: "Recent quick note",
+            revision: 1,
+            status: "active",
+            lastModifiedAt: "2026-08-30T19:30:00.000Z",
+            logicalPath: "notes/ad-hoc/2026-08-30/day1_quicknote_recent.md",
+            routePath: "/notes/day1_quicknote_recent",
             hasLearnerContent: true,
           },
           {
@@ -74,21 +96,65 @@ describe("note picker markers", () => {
             routePath: "/notes/day1_quicknote_blank",
             hasLearnerContent: false,
           },
+          {
+            noteId: "lesson-2.0",
+            noteKind: "lesson",
+            title: "Another day",
+            revision: 1,
+            status: "active",
+            lastModifiedAt: "2026-08-30T18:00:00.000Z",
+            logicalPath: "notes/lessons/2.0/notes.md",
+            routePath: "/study/day2/section/2.0",
+            hasLearnerContent: true,
+          },
+          {
+            noteId: "day2_quicknote_other",
+            noteKind: "ad_hoc",
+            title: "Other-day quick note",
+            revision: 1,
+            status: "active",
+            lastModifiedAt: "2026-08-30T17:00:00.000Z",
+            logicalPath: "notes/ad-hoc/2026-08-30/day2_quicknote_other.md",
+            routePath: "/notes/day2_quicknote_other",
+            hasLearnerContent: true,
+          },
+          {
+            noteId: "lesson-1.2",
+            noteKind: "lesson",
+            title: "Archived topic",
+            revision: 1,
+            status: "archived",
+            lastModifiedAt: "2026-08-30T16:00:00.000Z",
+            logicalPath: "notes/lessons/1.2/notes.md",
+            routePath: "/study/day1/section/1.2",
+            hasLearnerContent: true,
+          },
+          {
+            noteId: "event-1",
+            noteKind: "event",
+            title: "Calendar event",
+            revision: 1,
+            status: "active",
+            lastModifiedAt: "2026-08-30T15:00:00.000Z",
+            logicalPath: "notes/events/event-1/notes.md",
+            routePath: "/day/day1/event/event-1",
+            hasLearnerContent: true,
+          },
         ],
         unreadable: [],
       });
     }));
 
-    render(
+    const { container } = render(
       <NoteControls
         dayId="day1"
         scopeMode="study"
-        sectionIds={["1.0"]}
+        sectionIds={["1.0", "1.1"]}
         currentNoteId={currentNoteId}
         currentRevision={2}
         currentContentHash={staleHash}
         saveStatus="saved-disk"
-        onNavigate={onNavigate}
+        onOpenNote={onOpenNote}
       />,
     );
 
@@ -102,11 +168,103 @@ describe("note picker markers", () => {
     expect(blankOption.textContent?.startsWith("* ")).toBe(false);
     expect(screen.getByText(/prefixed with an asterisk/i)).toBeTruthy();
 
+    const topicGroup = container.querySelector('optgroup[label="Topic notes"]');
+    const quickGroup = container.querySelector('optgroup[label="Quick notes"]');
+    expect(topicGroup).not.toBeNull();
+    expect(quickGroup).not.toBeNull();
+    expect(Array.from(topicGroup?.querySelectorAll("option") ?? [], (option) => option.value)).toEqual([
+      "lesson-1.0",
+      "lesson-1.1",
+    ]);
+    expect(Array.from(quickGroup?.querySelectorAll("option") ?? [], (option) => option.value)).toEqual([
+      "day1_quicknote_recent",
+      "day1_quicknote_blank",
+    ]);
+    expect(screen.queryByRole("option", { name: /Another day/ })).toBeNull();
+    expect(screen.queryByRole("option", { name: /Other-day quick note/ })).toBeNull();
+    expect(screen.queryByRole("option", { name: /Archived topic/ })).toBeNull();
+    expect(screen.queryByRole("option", { name: /Calendar event/ })).toBeNull();
+
     await userEvent.setup().selectOptions(
       screen.getByRole("combobox", { name: "Choose a Markdown note" }),
-      "day1_quicknote_blank",
+      "lesson-1.1",
     );
-    expect(onNavigate).toHaveBeenCalledWith("/notes/day1_quicknote_blank");
+    expect(onOpenNote).toHaveBeenCalledWith("lesson-1.1", "/study/day1/section/1.1");
+  });
+
+  it("opens a newly created Study quick note through the same note-selection callback", async () => {
+    const onOpenNote = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/notes" && init?.method === "POST") {
+        expect(JSON.parse(String(init.body))).toEqual({
+          note_id: "day1_quicknote_model_editing_questions",
+          title: "Model editing questions",
+        });
+        return jsonResponse({ note_id: "day1_quicknote_model_editing_questions" });
+      }
+      if (String(input) === "/api/notes") {
+        return jsonResponse({ notes: [], unreadable: [] });
+      }
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    }));
+
+    render(
+      <NoteControls
+        dayId="day1"
+        scopeMode="study"
+        sectionIds={["1.0", "1.1"]}
+        currentNoteId={currentNoteId}
+        currentRevision={2}
+        currentContentHash={staleHash}
+        saveStatus="saved-disk"
+        onOpenNote={onOpenNote}
+      />,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "New quick note" }));
+    await user.type(screen.getByLabelText("Quick-note filename"), "Model editing questions");
+    await user.click(screen.getByRole("button", { name: "Create and open" }));
+
+    await waitFor(() => {
+      expect(onOpenNote).toHaveBeenCalledWith(
+        "day1_quicknote_model_editing_questions",
+        "/notes/day1_quicknote_model_editing_questions",
+      );
+    });
+  });
+
+  it("keeps the current non-archived Today note selectable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
+      notes: [{
+        noteId: "event-cancelled",
+        noteKind: "event",
+        title: "Rescheduled session",
+        revision: 2,
+        status: "cancelled",
+        lastModifiedAt: "2026-08-30T20:00:00.000Z",
+        logicalPath: "notes/events/event-cancelled/notes.md",
+        routePath: "/day/day1/event/event-cancelled",
+        hasLearnerContent: true,
+      }],
+      unreadable: [],
+    })));
+
+    render(
+      <NoteControls
+        dayId="day1"
+        scopeMode="today"
+        sectionIds={[]}
+        currentNoteId="event-cancelled"
+        currentRevision={2}
+        currentContentHash={staleHash}
+        saveStatus="saved-disk"
+        onOpenNote={() => undefined}
+      />,
+    );
+
+    expect(await screen.findByRole("option", { name: /Rescheduled session/ })).toBeTruthy();
+    expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("event-cancelled");
   });
 });
 

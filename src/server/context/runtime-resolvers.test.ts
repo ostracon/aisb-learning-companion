@@ -164,16 +164,88 @@ function fixture() {
     notes: {
       async readById(noteId) {
         if (noteId === "event-event-1") {
-          return { noteId, kind: "event", persistedRevision: "4" };
+          return {
+            noteId,
+            kind: "event",
+            persistedRevision: "4",
+            locator: { kind: "event", event_binding_id: "event-1" },
+            logicalPath: "notes/events/event-1/notes.md",
+          };
         }
         if (noteId === "day-day1") {
-          return { noteId, kind: "day", persistedRevision: "2" };
+          return {
+            noteId,
+            kind: "day",
+            persistedRevision: "2",
+            locator: { kind: "day", programme_day_id: "day1" },
+            logicalPath: "notes/days/day1/overview.md",
+          };
         }
         if (noteId === "lesson-1.1") {
-          return { noteId, kind: "lesson", persistedRevision: "7" };
+          return {
+            noteId,
+            kind: "lesson",
+            persistedRevision: "7",
+            locator: { kind: "lesson", section_id: "1.1" },
+            logicalPath: "notes/lessons/1.1/notes.md",
+          };
         }
         if (noteId === "lesson-4.1") {
-          return { noteId, kind: "lesson", persistedRevision: "8" };
+          return {
+            noteId,
+            kind: "lesson",
+            persistedRevision: "8",
+            locator: { kind: "lesson", section_id: "4.1" },
+            logicalPath: "notes/lessons/4.1/notes.md",
+          };
+        }
+        if (noteId === "lesson-4.2") {
+          return {
+            noteId,
+            kind: "lesson",
+            persistedRevision: "9",
+            locator: { kind: "lesson", section_id: "4.2" },
+            logicalPath: "notes/lessons/4.2/notes.md",
+          };
+        }
+        if (noteId === "day4_quicknote_attention") {
+          return {
+            noteId,
+            kind: "ad_hoc",
+            persistedRevision: "3",
+            locator: {
+              kind: "ad_hoc",
+              creation_date: "2026-09-03",
+              note_id: noteId,
+            },
+            logicalPath: `notes/ad-hoc/2026-09-03/${noteId}.md`,
+          };
+        }
+        if (noteId === "day3_quicknote_other_day") {
+          return {
+            noteId,
+            kind: "ad_hoc",
+            persistedRevision: "1",
+            locator: {
+              kind: "ad_hoc",
+              creation_date: "2026-09-02",
+              note_id: noteId,
+            },
+            logicalPath: `notes/ad-hoc/2026-09-02/${noteId}.md`,
+          };
+        }
+        if (noteId === "day4_quicknote_") {
+          return {
+            noteId,
+            kind: "ad_hoc",
+            persistedRevision: "1",
+            locator: {
+              kind: "ad_hoc",
+              creation_date: "2026-09-03",
+              note_id: noteId,
+            },
+            logicalPath: `notes/ad-hoc/2026-09-03/${noteId}.md`,
+          };
         }
         return null;
       },
@@ -204,9 +276,9 @@ function eventDraft(): LiveNoteDraftInput {
   });
 }
 
-function studyDraft(sectionId = "4.1"): LiveNoteDraftInput {
+function studyDraft(noteId = "lesson-4.1"): LiveNoteDraftInput {
   return liveDraftFromClient({
-    noteId: `lesson-${sectionId}`,
+    noteId,
     content: "# Model editing\n\nMy current reasoning, saved or unsaved.",
     baseRevision: 8,
     saveStatus: "saving-disk",
@@ -411,6 +483,7 @@ describe("route page-context runtime", () => {
       sectionId: "4.1",
       documentId: state.materialDocumentId,
       materialManifestRevision: state.materialManifestRevision,
+      noteId: "lesson-4.1",
       historyEntryId: "history-study-4-1",
       chatId: "chat-study-4-1",
       threadId: "thread-study-4-1",
@@ -484,6 +557,123 @@ describe("route page-context runtime", () => {
     ]);
   });
 
+  it("keeps visible Study material fixed while binding another lesson note from the same day", async () => {
+    const { runtime, state } = fixture();
+    const binding = await runtime.bindTutorRoute({
+      contextMode: "study",
+      dayId: "day4",
+      sectionId: "4.1",
+      documentId: state.materialDocumentId,
+      materialManifestRevision: state.materialManifestRevision,
+      noteId: "lesson-4.2",
+      historyEntryId: "history-study-reference-lesson",
+      chatId: "chat-study-reference-lesson",
+      threadId: "thread-study-reference-lesson",
+    });
+
+    expect(binding.routePath).toBe(
+      `/study/day4/section/4.1/document/${state.materialDocumentId}`,
+    );
+    expect(binding.expectedCurrentNoteId).toBe("lesson-4.2");
+    expect(binding.requestIds).toMatchObject({
+      dayId: "day4",
+      sectionId: "4.1",
+      noteId: "lesson-4.2",
+    });
+
+    const snapshot = await runtime.contextService.resolvePageContext(
+      binding.requestIds,
+      studyDraft("lesson-4.2"),
+      [],
+    );
+    expect(snapshot.route).toMatchObject({
+      path: `/study/day4/section/4.1/document/${state.materialDocumentId}`,
+      sectionId: "4.1",
+    });
+    expect(snapshot.lesson?.sectionId).toBe("4.1");
+    expect(snapshot.canonicalOutcomes.map((outcome) => outcome.sectionId)).toEqual(["4.1"]);
+    expect(snapshot.note).toMatchObject({
+      state: "current_note",
+      noteId: "lesson-4.2",
+      kind: "lesson",
+      logicalPath: "notes/lessons/4.2/notes.md",
+      persistedRevision: "9",
+    });
+  });
+
+  it("binds a same-day quick note without changing the visible Study section", async () => {
+    const { runtime, state } = fixture();
+    const binding = await runtime.bindTutorRoute({
+      contextMode: "study",
+      dayId: "day4",
+      sectionId: "4.1",
+      documentId: state.materialDocumentId,
+      materialManifestRevision: state.materialManifestRevision,
+      noteId: "day4_quicknote_attention",
+      historyEntryId: "history-study-reference-quick",
+      chatId: "chat-study-reference-quick",
+      threadId: "thread-study-reference-quick",
+    });
+
+    const snapshot = await runtime.contextService.resolvePageContext(
+      binding.requestIds,
+      studyDraft("day4_quicknote_attention"),
+      [],
+    );
+    expect(snapshot.route.sectionId).toBe("4.1");
+    expect(snapshot.lesson?.sectionId).toBe("4.1");
+    expect(snapshot.note).toMatchObject({
+      state: "current_note",
+      noteId: "day4_quicknote_attention",
+      kind: "ad_hoc",
+      logicalPath: "notes/ad-hoc/2026-09-03/day4_quicknote_attention.md",
+      persistedRevision: "3",
+    });
+  });
+
+  it.each([
+    ["unknown note", "missing-study-note"],
+    ["a lesson from another repository day", "lesson-1.1"],
+    ["a quick note bearing another day prefix", "day3_quicknote_other_day"],
+    ["an event note", "event-event-1"],
+    ["a day note", "day-day1"],
+    ["a malformed quick-note identifier", "day4_quicknote_"],
+  ])("rejects %s from a Day 4 Study binding", async (_label, noteId) => {
+    const { runtime, state } = fixture();
+    await expect(
+      runtime.bindTutorRoute({
+        contextMode: "study",
+        dayId: "day4",
+        sectionId: "4.1",
+        documentId: state.materialDocumentId,
+        materialManifestRevision: state.materialManifestRevision,
+        noteId,
+        historyEntryId: `history-reject-${noteId}`,
+        chatId: `chat-reject-${noteId}`,
+        threadId: `thread-reject-${noteId}`,
+      }),
+    ).rejects.toMatchObject({ code: "NOTE_SCOPE_MISMATCH" });
+  });
+
+  it("retains strict draft-to-bound-note matching for alternate Study notes", async () => {
+    const { runtime, state } = fixture();
+    const binding = await runtime.bindTutorRoute({
+      contextMode: "study",
+      dayId: "day4",
+      sectionId: "4.1",
+      documentId: state.materialDocumentId,
+      materialManifestRevision: state.materialManifestRevision,
+      noteId: "lesson-4.2",
+      historyEntryId: "history-study-note-mismatch",
+      chatId: "chat-study-note-mismatch",
+      threadId: "thread-study-note-mismatch",
+    });
+
+    await expect(
+      runtime.contextService.resolvePageContext(binding.requestIds, studyDraft("lesson-4.1"), []),
+    ).rejects.toMatchObject({ code: "NOTE_SCOPE_MISMATCH" });
+  });
+
   it("rejects stale or mismatched Study material identifiers before a page binding is issued", async () => {
     const { runtime, state } = fixture();
     await expect(
@@ -493,6 +683,7 @@ describe("route page-context runtime", () => {
         sectionId: "4.1",
         documentId: state.materialDocumentId,
         materialManifestRevision: `sha256:${"d".repeat(64)}`,
+        noteId: "lesson-4.1",
         historyEntryId: "history-stale",
         chatId: "chat-stale",
         threadId: "thread-stale",
@@ -506,6 +697,7 @@ describe("route page-context runtime", () => {
         sectionId: "4.1",
         documentId: `doc_${"e".repeat(64)}`,
         materialManifestRevision: state.materialManifestRevision,
+        noteId: "lesson-4.1",
         historyEntryId: "history-wrong-document",
         chatId: "chat-wrong-document",
         threadId: "thread-wrong-document",
@@ -521,6 +713,7 @@ describe("route page-context runtime", () => {
       sectionId: "4.1",
       documentId: state.materialDocumentId,
       materialManifestRevision: state.materialManifestRevision,
+      noteId: "lesson-4.1",
       historyEntryId: "history-material-hash",
       chatId: "chat-material-hash",
       threadId: "thread-material-hash",

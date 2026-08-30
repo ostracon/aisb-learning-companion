@@ -63,7 +63,13 @@ function runtimeFixture() {
       },
       notes: {
         async readById(noteId) {
-          return { noteId, kind: "event" as const, persistedRevision: "1" };
+          return {
+            noteId,
+            kind: "event" as const,
+            persistedRevision: "1",
+            locator: { kind: "event" as const, event_binding_id: "aisb-2026-016" },
+            logicalPath: "notes/events/aisb-2026-016/notes.md",
+          };
         },
       },
       repository: {
