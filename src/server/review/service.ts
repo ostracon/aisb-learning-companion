@@ -27,6 +27,7 @@ const MAX_QUESTION_LIMIT = 20;
 const MAX_SELECTED_OUTCOMES = 32;
 const MAX_LEARNER_RESPONSE_LENGTH = 64 * 1024;
 const MAX_REVIEW_QUESTION_LENGTH = 320;
+const MAX_REVIEW_FEEDBACK_LENGTH = 700;
 const REVIEW_ENVELOPE_SCHEMA = "aisb-learning-companion.review-turn.v1";
 const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
@@ -79,7 +80,7 @@ const FeedbackOutputSchema = z
     kind: z.literal("feedback_and_question"),
     feedback: z
       .object({
-        text: z.string().trim().min(1).max(8_000),
+        text: z.string().trim().min(1).max(MAX_REVIEW_FEEDBACK_LENGTH),
         outcome_ids: z.array(SafeIdentifierSchema).min(1).max(MAX_SELECTED_OUTCOMES),
       })
       .strict()
@@ -1125,6 +1126,11 @@ function reviewPrompt(body: Readonly<Record<string, unknown>>): string {
         maximum_prompt_characters: MAX_REVIEW_QUESTION_LENGTH,
         expected_effort: "one compact answer in about two minutes",
         compound_outcomes: "test one meaningful subskill, not the entire outcome at once",
+      },
+      feedback_contract: {
+        maximum_characters: MAX_REVIEW_FEEDBACK_LENGTH,
+        structure: "one strength, one highest-value gap, and one next retrieval step",
+        restatement: "do not rewrite the learner response or provide a comprehensive model answer",
       },
     },
     ...body,

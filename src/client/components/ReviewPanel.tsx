@@ -194,6 +194,7 @@ export function ReviewPanel({
   const [responseMode, setResponseMode] = useState<ReviewSessionResponse["mode"] | null>(null);
   const responseRef = useRef<HTMLTextAreaElement>(null);
   const resumedSessionIdRef = useRef(readStoredReviewSessionId(scopeKey));
+  const reviewViewGenerationRef = useRef(0);
 
   useEffect(() => {
     const storedSessionId = readStoredReviewSessionId(scopeKey);
@@ -323,6 +324,7 @@ export function ReviewPanel({
 
   const continueSession = async () => {
     if (!session || busy) return;
+    const viewGeneration = reviewViewGenerationRef.current;
     setBusy(true);
     setError(null);
     try {
@@ -330,6 +332,7 @@ export function ReviewPanel({
         `/api/review/sessions/${encodeURIComponent(session.sessionId)}/start`,
         {},
       );
+      if (viewGeneration !== reviewViewGenerationRef.current) return;
       const storedDraft = readStoredReviewResponse(
         scopeKey,
         result.session.sessionId,
@@ -341,17 +344,19 @@ export function ReviewPanel({
       setResponse(result.session.pendingResponse?.learnerResponse ?? storedDraft.response);
       setConfidence(result.session.pendingResponse?.learnerConfidence ?? storedDraft.confidence);
     } catch (reason) {
+      if (viewGeneration !== reviewViewGenerationRef.current) return;
       setError(reason instanceof Error
         ? reason.message
         : "The saved review session could not continue");
     } finally {
-      setBusy(false);
+      if (viewGeneration === reviewViewGenerationRef.current) setBusy(false);
     }
   };
 
   const submit = async () => {
     const question = session?.currentQuestion;
     if (!question || !response.trim()) return;
+    const viewGeneration = reviewViewGenerationRef.current;
     setBusy(true);
     setError(null);
     try {
@@ -364,6 +369,7 @@ export function ReviewPanel({
         `/api/review/sessions/${encodeURIComponent(session.sessionId)}/responses`,
         request,
       );
+      if (viewGeneration !== reviewViewGenerationRef.current) return;
       clearStoredReviewResponse(scopeKey, session.sessionId);
       setSession(result.result.session);
       setResponseMode(result.mode);
@@ -371,17 +377,21 @@ export function ReviewPanel({
       setResponse("");
       setConfidence(null);
     } catch (reason) {
+      if (viewGeneration !== reviewViewGenerationRef.current) return;
       setError(reason instanceof Error ? reason.message : "The review response could not be recorded");
     } finally {
-      setBusy(false);
+      if (viewGeneration === reviewViewGenerationRef.current) setBusy(false);
     }
   };
 
   const startAnotherSession = () => {
+    reviewViewGenerationRef.current += 1;
     if (session) {
       clearStoredReviewSessionId(scopeKey, session.sessionId);
       clearStoredReviewResponse(scopeKey, session.sessionId);
     }
+    resumedSessionIdRef.current = null;
+    setBusy(false);
     setSession(null);
     setFeedbackHistory([]);
     setResponse("");
@@ -467,9 +477,19 @@ export function ReviewPanel({
   if (session.status === "ready_for_question") {
     return (
       <div className="review-panel-content review-session review-ready-session">
-        <div className="review-progress" role="status" aria-live="polite">
-          <span>Review saved</span>
-          <span>Advisory · ready to continue</span>
+        <div className="review-progress">
+          <div className="review-progress-copy" role="status" aria-live="polite">
+            <span>Review saved</span>
+            <span>Advisory · ready to continue</span>
+          </div>
+          <button
+            className="text-button review-exit"
+            type="button"
+            title="Return to review setup"
+            onClick={startAnotherSession}
+          >
+            Exit review
+          </button>
         </div>
         <div className="review-question review-ready-message">
           <span>Durable session</span>
@@ -490,9 +510,25 @@ export function ReviewPanel({
   const responseLocked = session.pendingResponse !== null;
   return (
     <div className="review-panel-content review-session">
-      <div className="review-progress" role="status" aria-live="polite">
-        <span>{session.status === "complete" ? "Session complete" : `Question ${question?.number ?? session.questionsAsked} of ${session.questionLimit}`}</span>
-        <span>Advisory · {responseMode === "live-codex" ? "GPT-5.6 Sol" : "local fallback"}</span>
+      <div className="review-progress">
+        <div className="review-progress-copy" role="status" aria-live="polite">
+          <span>{session.status === "complete" ? "Session complete" : `Question ${question?.number ?? session.questionsAsked} of ${session.questionLimit}`}</span>
+          <span>Advisory · {responseMode === "live-codex" ? "GPT-5.6 Sol" : "local fallback"}</span>
+        </div>
+        {question ? (
+          <button
+            className="text-button review-exit"
+            type="button"
+            title={responseLocked
+              ? "Return to review setup; the submitted response remains in local review history"
+              : response.trim()
+                ? "Discard this unsent review draft and return to setup"
+                : "Return to review setup"}
+            onClick={startAnotherSession}
+          >
+            Exit review
+          </button>
+        ) : null}
       </div>
       {feedbackHistory.at(-1) ? (
         <div className="review-feedback" role="status" aria-live="polite">
@@ -506,7 +542,9 @@ export function ReviewPanel({
               showRawHtmlSource
             />
           </div>
-          <small>{feedbackHistory.at(-1)!.citations.map((citation) => citation.sourcePath).join(" · ")}</small>
+          <small>
+            {Array.from(new Set(feedbackHistory.at(-1)!.citations.map((citation) => citation.sourcePath))).join(" · ")}
+          </small>
         </div>
       ) : null}
       {question ? (
@@ -561,11 +599,6 @@ export function ReviewPanel({
           <button className="primary-button review-submit" type="button" disabled={busy || !response.trim()} onClick={() => void submit()}>
             {busy ? responseLocked ? "Resuming…" : "Recording…" : responseLocked ? "Resume saved response" : "Record response"}
           </button>
-          {!responseLocked ? (
-            <button className="text-button review-start-over" type="button" disabled={busy} onClick={startAnotherSession}>
-              Start over with new questions
-            </button>
-          ) : null}
         </>
       ) : (
         <div className="review-complete">

@@ -386,7 +386,7 @@ describe("ReviewPanel", () => {
     expect(container.querySelector(".review-feedback .katex")).toBeTruthy();
   });
 
-  it("lets an unanswered saved question be replaced without retaining its local draft", async () => {
+  it("exits an active review to its existing configuration without retaining its local draft", async () => {
     const scopeKey = "study:day1:1.1";
     const activeSession = session();
     const draftKey = reviewResponseDraftStorageKey(scopeKey, activeSession.sessionId);
@@ -413,11 +413,71 @@ describe("ReviewPanel", () => {
       />,
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Start over with new questions" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Exit review" }));
 
     expect(screen.getByRole("button", { name: "Start active recall" })).toBeTruthy();
     expect(window.localStorage.getItem(reviewSessionStorageKey(scopeKey))).toBeNull();
     expect(window.localStorage.getItem(draftKey)).toBeNull();
+  });
+
+  it("stays on review setup when an exited in-flight response finishes late", async () => {
+    const scopeKey = "study:day1:1.1";
+    const activeSession = session();
+    window.localStorage.setItem(reviewSessionStorageKey(scopeKey), activeSession.sessionId);
+    let resolveSubmit: ((value: {
+      readonly ok: boolean;
+      readonly status: number;
+      readonly json: () => Promise<unknown>;
+    }) => void) | undefined;
+    const pendingSubmit = new Promise<{
+      readonly ok: boolean;
+      readonly status: number;
+      readonly json: () => Promise<unknown>;
+    }>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ mode: "live-codex", session: activeSession }),
+      })
+      .mockReturnValueOnce(pendingSubmit);
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(
+      <ReviewPanel
+        scopeKey={scopeKey}
+        dayId="day1"
+        contextMode="study"
+        eventBindingId={null}
+        studySectionId="1.1"
+        outcomes={[choice]}
+      />,
+    );
+
+    const response = await screen.findByLabelText("Your recall");
+    await user.type(response, "A response that is already being recorded.");
+    await user.click(screen.getByRole("button", { name: "Record response" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole("button", { name: "Exit review" }));
+    expect(screen.getByRole("button", { name: "Start active recall" })).toBeTruthy();
+
+    resolveSubmit?.({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        mode: "live-codex",
+        result: {
+          session: { ...activeSession, status: "complete", currentQuestion: null },
+          responseId: "response-1",
+          feedback: null,
+          nextQuestion: null,
+        },
+      }),
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start active recall" })).toBeTruthy());
   });
 
   it("restores an unsent response and confidence, then clears them only after accepted submission", async () => {

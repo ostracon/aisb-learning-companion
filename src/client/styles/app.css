@@ -3154,23 +3154,40 @@ body {
   flex: 0 0 auto;
 }
 
-.review-start-over {
-  align-self: center;
-  min-height: 2rem;
-  margin-top: -0.35rem;
-  padding-inline: 0.5rem;
-  font-size: 0.7rem;
-}
-
 .review-progress {
+  position: sticky;
+  z-index: 2;
+  top: -1.1rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.7rem;
+  margin: -0.35rem 0 0;
+  padding: 0.35rem 0 0.55rem;
+  border-bottom: 1px solid var(--divider);
+  background: var(--paper);
+}
+
+.review-progress-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
   color: var(--muted);
   font-size: 0.7rem;
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.review-exit {
+  min-height: 1.8rem;
+  flex: 0 0 auto;
+  padding-inline: 0.4rem;
+  color: var(--cobalt);
+  font-size: 0.68rem;
 }
 
 .review-question,

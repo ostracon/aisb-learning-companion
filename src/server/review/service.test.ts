@@ -541,6 +541,32 @@ describe("ReviewCoachService feedback flow", () => {
     ).rejects.toMatchObject({ code: "conflict" });
   });
 
+  it("rejects review feedback that exceeds the concise feedback contract", async () => {
+    const generator = new FakeGenerator(
+      generation(question(), 1),
+      generation({
+        kind: "feedback_and_question",
+        feedback: {
+          text: "x".repeat(701),
+          outcome_ids: [OUTCOME_ONE.outcomeId],
+        },
+        next_question: null,
+      }, 2),
+    );
+    const service = createService(generator);
+    const created = await service.createSession({
+      canonicalOutcomes: [OUTCOME_ONE],
+      questionLimit: 1,
+    });
+    const started = await service.startQuestion({ sessionId: created.sessionId });
+
+    await expect(service.submitResponse({
+      sessionId: created.sessionId,
+      questionId: started.currentQuestion!.questionId,
+      learnerResponse: "A concrete attempt.",
+    })).rejects.toMatchObject({ code: "invalid_model_output" });
+  });
+
   it("keeps a response pending when generation fails and accepts only an exact retry", async () => {
     const generator = new FakeGenerator(
       generation(question(), 1),
