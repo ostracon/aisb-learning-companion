@@ -121,26 +121,51 @@ function formatEventTime(value: string): string {
   }).format(new Date(value));
 }
 
-export function studyScheduleOnlyDays(
+export type StudyNavigationDay =
+  | {
+      readonly kind: "repository";
+      readonly dayId: LearningDayId;
+      readonly repositorySections: readonly CurriculumSectionView[];
+    }
+  | {
+      readonly kind: "schedule";
+      readonly dayId: LearningDayId;
+      readonly day: BootstrapResponse["programmeDays"][number];
+      readonly learningEventCount: number;
+    };
+
+export function studyNavigationDays(
   programmeDays: readonly BootstrapResponse["programmeDays"][number][],
   events: readonly ScheduleEventView[],
   repositorySectionsByDay: BootstrapResponse["repositorySectionsByDay"],
-  programmeToRepositoryDay: BootstrapResponse["programmeToRepositoryDay"],
-) {
-  return programmeDays.flatMap((day) => {
-    const repositoryDayId = programmeToRepositoryDay[day.dayId];
-    const repositorySections = repositoryDayId === null
-      ? []
-      : repositorySectionsByDay[repositoryDayId] ?? [];
-    if (repositorySections.length > 0) return [];
-
-    return [{
+): StudyNavigationDay[] {
+  const programmeByDay = new Map(programmeDays.map((day) => [day.dayId, day]));
+  const dayIds = new Set<LearningDayId>([
+    ...(Object.entries(repositorySectionsByDay) as [LearningDayId, CurriculumSectionView[]][])
+      .filter(([, sections]) => sections.length > 0)
+      .map(([dayId]) => dayId),
+    ...programmeDays.map((day) => day.dayId),
+  ]);
+  const navigationDays: StudyNavigationDay[] = [];
+  for (const dayId of [...dayIds]
+    .sort((left, right) => Number(left.slice(3)) - Number(right.slice(3)))) {
+    const repositorySections = repositorySectionsByDay[dayId] ?? [];
+    if (repositorySections.length > 0) {
+      navigationDays.push({ kind: "repository", dayId, repositorySections });
+      continue;
+    }
+    const day = programmeByDay.get(dayId as BootstrapResponse["programmeDays"][number]["dayId"]);
+    if (!day) continue;
+    navigationDays.push({
+      kind: "schedule",
+      dayId,
       day,
       learningEventCount: events.filter(
-        (event) => event.programmeDayId === day.dayId && !isMealScheduleEvent(event),
+        (event) => event.programmeDayId === dayId && !isMealScheduleEvent(event),
       ).length,
-    }];
-  });
+    });
+  }
+  return navigationDays;
 }
 
 function writeAnchorToHistory(anchor: NowAnchor): void {
@@ -1607,11 +1632,10 @@ function WorkspacePage({
     ? selectedDayId
     : (Object.entries(data.programmeToRepositoryDay).find(([, repoDay]) => repoDay === selectedDayId)?.[0] as LearningDayId | undefined)
       ?? selectedDayId;
-  const scheduleOnlyStudyDays = studyScheduleOnlyDays(
+  const studyDays = studyNavigationDays(
     schedule.programmeDays,
     schedule.events,
     data.repositorySectionsByDay,
-    data.programmeToRepositoryDay,
   );
   const shellClasses = [
     "app-shell",
@@ -1670,48 +1694,38 @@ function WorkspacePage({
           </div>
           {isStudy ? (
             <>
-              <p className="week-label">AISB repository</p>
-              <nav className="day-list repository-day-list">
-                {(Object.entries(data.repositorySectionsByDay) as [LearningDayId, CurriculumSectionView[]][])
-                  .filter(([, repositorySections]) => repositorySections.length > 0)
-                  .map(([dayId, repositorySections]) => (
-                    <Link
-                      key={dayId}
-                      className={`day-link ${dayId === selectedDayId ? "active" : ""}`}
-                      to={`/study/${dayId}`}
-                      aria-current={dayId === selectedDayId ? "page" : undefined}
-                    >
-                      <span className="day-dot" aria-hidden="true" />
-                      <span className="day-label">
-                        <strong>Day {dayId.slice(3)}</strong>
-                        <span>{repositorySections.length} section{repositorySections.length === 1 ? "" : "s"}</span>
+              <p className="week-label">AISB course</p>
+              <nav className="day-list study-day-list">
+                {studyDays.map((entry) => entry.kind === "repository" ? (
+                  <Link
+                    key={entry.dayId}
+                    className={`day-link ${entry.dayId === selectedDayId ? "active" : ""}`}
+                    to={`/study/${entry.dayId}`}
+                    aria-current={entry.dayId === selectedDayId ? "page" : undefined}
+                  >
+                    <span className="day-dot" aria-hidden="true" />
+                    <span className="day-label">
+                      <strong>Day {entry.dayId.slice(3)}</strong>
+                      <span>{entry.repositorySections.length} section{entry.repositorySections.length === 1 ? "" : "s"}</span>
+                    </span>
+                  </Link>
+                ) : (
+                  <Link
+                    key={entry.dayId}
+                    className="day-link schedule-only-day"
+                    to={`/day/${entry.dayId}`}
+                    aria-label={`Open ${entry.day.title} schedule and notes`}
+                  >
+                    <span className="day-dot" aria-hidden="true" />
+                    <span className="day-label">
+                      <strong>{entry.day.title}</strong>
+                      <span>
+                        {entry.learningEventCount} learning event{entry.learningEventCount === 1 ? "" : "s"} · notes
                       </span>
-                    </Link>
+                    </span>
+                  </Link>
                   ))}
               </nav>
-              {scheduleOnlyStudyDays.length > 0 ? (
-                <>
-                  <p className="week-label programme-week-label">Schedule and notes</p>
-                  <nav className="day-list schedule-only-day-list">
-                    {scheduleOnlyStudyDays.map(({ day, learningEventCount }) => (
-                      <Link
-                        key={day.dayId}
-                        className="day-link schedule-only-day"
-                        to={`/day/${day.dayId}`}
-                        aria-label={`Open ${day.title} schedule and notes`}
-                      >
-                        <span className="day-dot" aria-hidden="true" />
-                        <span className="day-label">
-                          <strong>{day.title}</strong>
-                          <span>
-                            {learningEventCount} learning event{learningEventCount === 1 ? "" : "s"} · notes
-                          </span>
-                        </span>
-                      </Link>
-                    ))}
-                  </nav>
-                </>
-              ) : null}
             </>
           ) : (
             <>

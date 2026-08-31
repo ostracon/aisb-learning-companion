@@ -10,40 +10,42 @@ import {
   extractReflectionBody,
   NoteSaveControls,
   shouldRestoreUncertainTutorText,
-  studyScheduleOnlyDays,
+  studyNavigationDays,
   tutorComposerStorageKey,
   TutorContinuityControls,
   uncertainTutorComposerAction,
   useScopedComposerDraft,
 } from "./App.js";
 
-describe("Study schedule-only navigation", () => {
-  it("includes programme days whose mapped repository material is unavailable", () => {
+describe("Study day navigation", () => {
+  it("merges repository and schedule-only days into one chronological list", () => {
     const days = [
-      { dayId: "day4" as const, date: "2026-09-02", curriculumKind: "break" as const, title: "Day 4 · Schedule only" },
       { dayId: "day5" as const, date: "2026-09-03", curriculumKind: "content" as const, title: "Day 5" },
+      { dayId: "day4" as const, date: "2026-09-02", curriculumKind: "break" as const, title: "Day 4 · Schedule only" },
     ];
     const events = [
       { eventBindingId: "breakfast", programmeDayId: "day4" as const, title: "Breakfast", start: "2026-09-02T07:00:00+01:00", end: "2026-09-02T08:00:00+01:00", allDay: false, status: "scheduled" as const },
       { eventBindingId: "visit", programmeDayId: "day4" as const, title: "Visit UK AISI", start: "2026-09-02T09:00:00+01:00", end: "2026-09-02T10:00:00+01:00", allDay: false, status: "scheduled" as const },
       { eventBindingId: "talk", programmeDayId: "day5" as const, title: "Model editing talk", start: "2026-09-03T09:00:00+01:00", end: "2026-09-03T10:00:00+01:00", allDay: false, status: "scheduled" as const },
     ];
+    const setup = { sectionId: "0.1", title: "Setup", sourcePath: "day0-setup/README.md", outcomes: [] };
+    const monitoring = { sectionId: "2.2", title: "Monitoring", sourcePath: "2.2-monitoring/README.md", outcomes: [] };
+    const security = { sectionId: "6.1", title: "Security", sourcePath: "6.1-security/README.md", outcomes: [] };
 
-    expect(studyScheduleOnlyDays(days, events, {}, {
-      day1: "day1",
-      day2: "day2",
-      day3: "day3",
-      day4: null,
-      day5: "day4",
-      day6: "day6",
-      day7: "day7",
+    expect(studyNavigationDays(days, events, {
+      day6: [security],
+      day0: [setup],
+      day2: [monitoring],
     })).toEqual([
-      { day: days[0], learningEventCount: 1 },
-      { day: days[1], learningEventCount: 1 },
+      { kind: "repository", dayId: "day0", repositorySections: [setup] },
+      { kind: "repository", dayId: "day2", repositorySections: [monitoring] },
+      { kind: "schedule", dayId: "day4", day: days[1], learningEventCount: 1 },
+      { kind: "schedule", dayId: "day5", day: days[0], learningEventCount: 1 },
+      { kind: "repository", dayId: "day6", repositorySections: [security] },
     ]);
   });
 
-  it("omits a programme day once its mapped repository material is available", () => {
+  it("uses a repository row when the same numbered day has material", () => {
     const day = {
       dayId: "day5" as const,
       date: "2026-09-03",
@@ -57,15 +59,11 @@ describe("Study schedule-only navigation", () => {
       outcomes: [],
     };
 
-    expect(studyScheduleOnlyDays([day], [], { day4: [section] }, {
-      day1: "day1",
-      day2: "day2",
-      day3: "day3",
-      day4: null,
-      day5: "day4",
-      day6: "day6",
-      day7: "day7",
-    })).toEqual([]);
+    expect(studyNavigationDays([day], [], { day5: [section] })).toEqual([{
+      kind: "repository",
+      dayId: "day5",
+      repositorySections: [section],
+    }]);
   });
 });
 
