@@ -94,6 +94,70 @@ describe("NoteMarkdownEditor", () => {
     expect(onChange).toHaveBeenCalled();
   });
 
+  it("exits an empty top-level list marker without inserting a loose-list gap", () => {
+    const onChange = vi.fn();
+    render(
+      <NoteMarkdownEditor
+        value={"- bullet"}
+        readOnly={false}
+        onChange={onChange}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "Markdown note" });
+    const editorView = EditorView.findFromDOM(editor);
+    expect(editorView).not.toBeNull();
+    act(() => editorView?.dispatch({ selection: { anchor: editorView.state.doc.length } }));
+
+    fireEvent.keyDown(editor, { key: "Enter", code: "Enter" });
+    expect(editorView?.state.doc.toString()).toBe("- bullet\n- ");
+
+    fireEvent.keyDown(editor, { key: "Enter", code: "Enter" });
+    expect(editorView?.state.doc.toString()).toBe("- bullet\n");
+  });
+
+  it("outdents an empty nested list marker before exiting its parent list", () => {
+    const onChange = vi.fn();
+    render(
+      <NoteMarkdownEditor
+        value={"- outer\n  - nested"}
+        readOnly={false}
+        onChange={onChange}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "Markdown note" });
+    const editorView = EditorView.findFromDOM(editor);
+    expect(editorView).not.toBeNull();
+    act(() => editorView?.dispatch({ selection: { anchor: editorView.state.doc.length } }));
+
+    fireEvent.keyDown(editor, { key: "Enter", code: "Enter" });
+    expect(editorView?.state.doc.toString()).toBe("- outer\n  - nested\n  - ");
+
+    fireEvent.keyDown(editor, { key: "Enter", code: "Enter" });
+    expect(editorView?.state.doc.toString()).toBe("- outer\n  - nested\n- ");
+  });
+
+  it("continues an existing loose list without propagating its blank-line spacing", () => {
+    const onChange = vi.fn();
+    render(
+      <NoteMarkdownEditor
+        value={"- foo1\n\n- foo2"}
+        readOnly={false}
+        onChange={onChange}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "Markdown note" });
+    const editorView = EditorView.findFromDOM(editor);
+    expect(editorView).not.toBeNull();
+    act(() => editorView?.dispatch({ selection: { anchor: editorView.state.doc.length } }));
+
+    fireEvent.keyDown(editor, { key: "Enter", code: "Enter" });
+
+    expect(editorView?.state.doc.toString()).toBe("- foo1\n\n- foo2\n- ");
+  });
+
   it("loads the declared fenced-code language without changing the note", async () => {
     const onChange = vi.fn();
     const value = [

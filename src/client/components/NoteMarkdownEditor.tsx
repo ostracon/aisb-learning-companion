@@ -1,12 +1,20 @@
-import { markdown } from "@codemirror/lang-markdown";
+import {
+  deleteMarkupBackward,
+  insertNewlineContinueMarkupCommand,
+  markdown,
+} from "@codemirror/lang-markdown";
 import { HighlightStyle, LanguageDescription, syntaxHighlighting } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import CodeMirror, {
   EditorState,
+  EditorSelection,
   EditorView,
   ExternalChange,
+  Prec,
   Transaction,
+  keymap,
   type ReactCodeMirrorRef,
+  type StateCommand,
 } from "@uiw/react-codemirror";
 import { tags } from "@lezer/highlight";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -39,11 +47,85 @@ const notebookCodeLanguages = [
   ...languages,
 ];
 
-const editableMarkdownSupport = markdown({
-  codeLanguages: notebookCodeLanguages,
-  completeHTMLTags: false,
-  pasteURLAsLink: false,
-});
+const continueMarkdownList = insertNewlineContinueMarkupCommand({ nonTightLists: false });
+
+const continueTightMarkdownList: StateCommand = (target) => {
+  const { state, dispatch } = target;
+  if (dispatch === undefined || state.selection.ranges.length !== 1) {
+    return continueMarkdownList(target);
+  }
+
+  const generatedHolder: { transaction: Transaction | null } = { transaction: null };
+  const handled = continueMarkdownList({
+    state,
+    dispatch(transaction) {
+      generatedHolder.transaction = transaction;
+    },
+  });
+  const generated = generatedHolder.transaction;
+  if (!handled || generated === null) return handled;
+
+  const lineBreak = state.lineBreak;
+  const edits: { from: number; to: number; insert: string }[] = [];
+  let tightened = false;
+  generated.changes.iterChanges((from, to, _fromNew, _toNew, inserted) => {
+    let insert = inserted.toString();
+    if (!tightened && insert.startsWith(lineBreak)) {
+      const afterFirstBreak = insert.slice(lineBreak.length);
+      const secondBreak = afterFirstBreak.indexOf(lineBreak);
+      const blankContinuation = secondBreak < 0
+        ? null
+        : afterFirstBreak.slice(0, secondBreak);
+      const continuedMarkup = secondBreak < 0
+        ? ""
+        : afterFirstBreak.slice(secondBreak + lineBreak.length);
+      if (
+        blankContinuation !== null
+        && /^[\t >]*$/u.test(blankContinuation)
+        && /^[\t >]*(?:[-+*]|\d+[.)])(?:\s|$)/u.test(continuedMarkup)
+      ) {
+        insert = lineBreak + continuedMarkup;
+        tightened = true;
+      }
+    }
+    edits.push({ from, to, insert });
+  });
+
+  if (!tightened) {
+    dispatch(generated);
+    return true;
+  }
+
+  const changes = state.changes(edits);
+  dispatch(state.update({
+    changes,
+    selection: EditorSelection.cursor(changes.mapPos(state.selection.main.head, 1)),
+    scrollIntoView: true,
+    userEvent: "input",
+  }));
+  return true;
+};
+
+const editableMarkdownSupport = [
+  markdown({
+    addKeymap: false,
+    codeLanguages: notebookCodeLanguages,
+    completeHTMLTags: false,
+    pasteURLAsLink: false,
+  }),
+  Prec.high(keymap.of([
+    {
+      key: "Enter",
+      // CodeMirror defaults to making a tight list loose when Enter is
+      // pressed on its first empty continuation marker. Notes should instead
+      // match VS Code: outdent a nested marker or exit a top-level list.
+      // Existing loose lists also continue with one source line rather than
+      // propagating their historical blank-line spacing.
+      run: continueTightMarkdownList,
+    },
+    { key: "Backspace", run: deleteMarkupBackward },
+  ])),
+];
 const readOnlyMarkdownSupport = markdown({
   addKeymap: false,
   codeLanguages: notebookCodeLanguages,
