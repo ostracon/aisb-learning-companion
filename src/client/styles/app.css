@@ -263,6 +263,10 @@ body {
   border-style: dashed;
 }
 
+.day-link.schedule-only-day .day-dot {
+  border-style: dashed;
+}
+
 .day-label strong,
 .day-label span {
   display: block;

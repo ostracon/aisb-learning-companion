@@ -121,6 +121,28 @@ function formatEventTime(value: string): string {
   }).format(new Date(value));
 }
 
+export function studyScheduleOnlyDays(
+  programmeDays: readonly BootstrapResponse["programmeDays"][number][],
+  events: readonly ScheduleEventView[],
+  repositorySectionsByDay: BootstrapResponse["repositorySectionsByDay"],
+  programmeToRepositoryDay: BootstrapResponse["programmeToRepositoryDay"],
+) {
+  return programmeDays.flatMap((day) => {
+    const repositoryDayId = programmeToRepositoryDay[day.dayId];
+    const repositorySections = repositoryDayId === null
+      ? []
+      : repositorySectionsByDay[repositoryDayId] ?? [];
+    if (repositorySections.length > 0) return [];
+
+    return [{
+      day,
+      learningEventCount: events.filter(
+        (event) => event.programmeDayId === day.dayId && !isMealScheduleEvent(event),
+      ).length,
+    }];
+  });
+}
+
 function writeAnchorToHistory(anchor: NowAnchor): void {
   window.history.replaceState(
     {
@@ -1585,6 +1607,12 @@ function WorkspacePage({
     ? selectedDayId
     : (Object.entries(data.programmeToRepositoryDay).find(([, repoDay]) => repoDay === selectedDayId)?.[0] as LearningDayId | undefined)
       ?? selectedDayId;
+  const scheduleOnlyStudyDays = studyScheduleOnlyDays(
+    schedule.programmeDays,
+    schedule.events,
+    data.repositorySectionsByDay,
+    data.programmeToRepositoryDay,
+  );
   const shellClasses = [
     "app-shell",
     isStudy ? "study-mode" : "",
@@ -1661,6 +1689,29 @@ function WorkspacePage({
                     </Link>
                   ))}
               </nav>
+              {scheduleOnlyStudyDays.length > 0 ? (
+                <>
+                  <p className="week-label programme-week-label">Schedule and notes</p>
+                  <nav className="day-list schedule-only-day-list">
+                    {scheduleOnlyStudyDays.map(({ day, learningEventCount }) => (
+                      <Link
+                        key={day.dayId}
+                        className="day-link schedule-only-day"
+                        to={`/day/${day.dayId}`}
+                        aria-label={`Open ${day.title} schedule and notes`}
+                      >
+                        <span className="day-dot" aria-hidden="true" />
+                        <span className="day-label">
+                          <strong>{day.title}</strong>
+                          <span>
+                            {learningEventCount} learning event{learningEventCount === 1 ? "" : "s"} · notes
+                          </span>
+                        </span>
+                      </Link>
+                    ))}
+                  </nav>
+                </>
+              ) : null}
             </>
           ) : (
             <>

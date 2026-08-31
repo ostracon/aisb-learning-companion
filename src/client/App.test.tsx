@@ -10,11 +10,64 @@ import {
   extractReflectionBody,
   NoteSaveControls,
   shouldRestoreUncertainTutorText,
+  studyScheduleOnlyDays,
   tutorComposerStorageKey,
   TutorContinuityControls,
   uncertainTutorComposerAction,
   useScopedComposerDraft,
 } from "./App.js";
+
+describe("Study schedule-only navigation", () => {
+  it("includes programme days whose mapped repository material is unavailable", () => {
+    const days = [
+      { dayId: "day4" as const, date: "2026-09-02", curriculumKind: "break" as const, title: "Day 4 · Schedule only" },
+      { dayId: "day5" as const, date: "2026-09-03", curriculumKind: "content" as const, title: "Day 5" },
+    ];
+    const events = [
+      { eventBindingId: "breakfast", programmeDayId: "day4" as const, title: "Breakfast", start: "2026-09-02T07:00:00+01:00", end: "2026-09-02T08:00:00+01:00", allDay: false, status: "scheduled" as const },
+      { eventBindingId: "visit", programmeDayId: "day4" as const, title: "Visit UK AISI", start: "2026-09-02T09:00:00+01:00", end: "2026-09-02T10:00:00+01:00", allDay: false, status: "scheduled" as const },
+      { eventBindingId: "talk", programmeDayId: "day5" as const, title: "Model editing talk", start: "2026-09-03T09:00:00+01:00", end: "2026-09-03T10:00:00+01:00", allDay: false, status: "scheduled" as const },
+    ];
+
+    expect(studyScheduleOnlyDays(days, events, {}, {
+      day1: "day1",
+      day2: "day2",
+      day3: "day3",
+      day4: null,
+      day5: "day4",
+      day6: "day6",
+      day7: "day7",
+    })).toEqual([
+      { day: days[0], learningEventCount: 1 },
+      { day: days[1], learningEventCount: 1 },
+    ]);
+  });
+
+  it("omits a programme day once its mapped repository material is available", () => {
+    const day = {
+      dayId: "day5" as const,
+      date: "2026-09-03",
+      curriculumKind: "content" as const,
+      title: "Day 5",
+    };
+    const section = {
+      sectionId: "4.1",
+      title: "Model editing",
+      sourcePath: "4.1-model-editing/README.md",
+      outcomes: [],
+    };
+
+    expect(studyScheduleOnlyDays([day], [], { day4: [section] }, {
+      day1: "day1",
+      day2: "day2",
+      day3: "day3",
+      day4: null,
+      day5: "day4",
+      day6: "day6",
+      day7: "day7",
+    })).toEqual([]);
+  });
+});
 
 describe("uncertain tutor text restoration", () => {
   it("restores only when the resolution explicitly leaves the text retryable", () => {
