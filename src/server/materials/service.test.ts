@@ -33,6 +33,12 @@ async function write(root: string, relativePath: string, content: string): Promi
   await writeFile(target, content, "utf8");
 }
 
+async function writeBytes(root: string, relativePath: string, content: Buffer): Promise<void> {
+  const target = join(root, ...relativePath.split("/"));
+  await mkdir(join(target, ".."), { recursive: true });
+  await writeFile(target, content);
+}
+
 function linkByLabel(
   links: readonly { readonly label: string }[],
   label: string,
@@ -43,6 +49,46 @@ function linkByLabel(
 }
 
 describe("CurriculumMaterialService", () => {
+  it("serves only bounded repository images referenced by the selected document", async () => {
+    const root = await temporaryAisbRoot();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    await write(
+      root,
+      "1.1-intro/README.md",
+      [
+        "# Section one",
+        "![Architecture](resources/architecture.png)",
+        "![Remote](https://images.example.test/architecture.png)",
+      ].join("\n"),
+    );
+    await writeBytes(root, "1.1-intro/resources/architecture.png", png);
+    await writeBytes(root, "1.1-intro/resources/unreferenced.png", png);
+
+    const service = new CurriculumMaterialService(root);
+    const manifest = await service.manifest("1.1");
+    const image = await service.readImageForDisplay({
+      sectionId: "1.1",
+      documentId: manifest.rootDocumentId,
+      expectedManifestRevision: manifest.revision,
+      source: "resources/architecture.png",
+    });
+
+    expect(image.contentType).toBe("image/png");
+    expect(image.bytes).toEqual(png);
+    await expect(service.readImageForDisplay({
+      sectionId: "1.1",
+      documentId: manifest.rootDocumentId,
+      expectedManifestRevision: manifest.revision,
+      source: "resources/unreferenced.png",
+    })).rejects.toMatchObject({ code: "image_not_found", statusCode: 404 });
+    await expect(service.readImageForDisplay({
+      sectionId: "1.1",
+      documentId: manifest.rootDocumentId,
+      expectedManifestRevision: manifest.revision,
+      source: "https://images.example.test/architecture.png",
+    })).rejects.toMatchObject({ code: "image_unavailable", statusCode: 404 });
+  });
+
   it("starts at the section README and exposes linked instructions, sibling READMEs, HTTPS, and cycles", async () => {
     const root = await temporaryAisbRoot();
     await write(

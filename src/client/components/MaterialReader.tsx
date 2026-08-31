@@ -20,6 +20,7 @@ import { sectionTitleWithoutRepeatedId } from "../curriculum/section-label.js";
 import {
   SafeMarkdown,
   markdownHeadingSlug,
+  type MarkdownImageRenderInput,
   type MarkdownLinkRenderInput,
 } from "./SafeMarkdown.js";
 
@@ -78,6 +79,14 @@ function renderedLinkText(node: ReactNode): string {
   if (Array.isArray(node)) return node.map(renderedLinkText).join("");
   if (isValidElement<{ children?: ReactNode }>(node)) return renderedLinkText(node.props.children);
   return "";
+}
+
+function materialImageRoute(material: MaterialDocumentResponse, source: string): string {
+  const query = new URLSearchParams({
+    manifest_revision: material.manifestRevision,
+    source,
+  });
+  return `/api/materials/sections/${encodeURIComponent(material.sectionId)}/documents/${encodeURIComponent(material.document.documentId)}/image?${query.toString()}`;
 }
 
 interface MaterialProjectionProps {
@@ -157,6 +166,23 @@ function MaterialProjection({
       </span>
     );
   };
+  const renderImage = ({ alt, src, title }: MarkdownImageRenderInput) => {
+    const external = /^https:\/\//iu.test(src);
+    if (!external && (/^[a-z][a-z\d+.-]*:/iu.test(src) || src.startsWith("//"))) {
+      return null;
+    }
+    return (
+      <img
+        className="material-image"
+        src={external ? src : materialImageRoute(material, src)}
+        alt={alt}
+        {...(title ? { title } : {})}
+        loading="lazy"
+        decoding="async"
+        referrerPolicy="no-referrer"
+      />
+    );
+  };
 
   return (
     <SafeMarkdown
@@ -165,6 +191,7 @@ function MaterialProjection({
       inertLinkTitle="This repository target is unavailable"
       omittedImageLabel={null}
       renderLink={renderLink}
+      renderImage={renderImage}
       renderBlockDirective={({ language, value }) => {
         if (language !== MATERIAL_FOLD_DIRECTIVE_LANGUAGE) return undefined;
         const fold = folds.get(value);

@@ -1541,6 +1541,21 @@ body {
   margin: 0 0 1.05rem;
 }
 
+.study-material-pane .markdown-reader > p:has(> .material-image) {
+  max-width: 100%;
+}
+
+.material-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: 1.15rem 0;
+  border: 1px solid var(--divider);
+  background: var(--paper-raised);
+  object-fit: contain;
+}
+
 .markdown-reader pre {
   max-width: 100%;
   overflow: auto;

@@ -472,6 +472,7 @@ const reviewSessionIdSchema = z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Z
 const materialSectionIdSchema = z.string().regex(/^\d+\.\d+$/);
 const materialDocumentIdSchema = z.string().regex(/^doc_[a-f0-9]{64}$/);
 const materialManifestRevisionSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const materialImageSourceSchema = z.string().min(1).max(2_048);
 const canonicalOutcomeIdentifierSchema = z
   .string()
   .min(1)
@@ -789,6 +790,34 @@ app.get<{
       documentId,
       expectedManifestRevision,
     }));
+  },
+);
+
+app.get<{
+  Params: { sectionId: string; documentId: string };
+  Querystring: { manifest_revision?: string; source?: string };
+}>(
+  "/api/materials/sections/:sectionId/documents/:documentId/image",
+  async (request, reply) => {
+    const sectionId = materialSectionIdSchema.parse(request.params.sectionId);
+    const documentId = materialDocumentIdSchema.parse(request.params.documentId);
+    const expectedManifestRevision = materialManifestRevisionSchema.parse(
+      request.query.manifest_revision,
+    );
+    const source = materialImageSourceSchema.parse(request.query.source);
+    const image = await curriculumMaterialService.readImageForDisplay({
+      sectionId,
+      documentId,
+      expectedManifestRevision,
+      source,
+    });
+    return reply
+      .header("Cache-Control", "no-store")
+      .header("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'")
+      .header("Cross-Origin-Resource-Policy", "same-origin")
+      .header("X-Content-Type-Options", "nosniff")
+      .type(image.contentType)
+      .send(image.bytes);
   },
 );
 

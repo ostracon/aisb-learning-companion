@@ -4,6 +4,7 @@ import { lstat, open, readdir, realpath } from "node:fs/promises";
 import {
   basename,
   dirname,
+  extname,
   isAbsolute,
   join,
   relative,
@@ -123,6 +124,16 @@ export interface ReadDisplayCurriculumMaterialResult {
   readonly browserOnlyFoldCount: number;
 }
 
+export interface ReadDisplayCurriculumImageInput extends ReadCurriculumMaterialInput {
+  /** Exact Markdown image target authored in the selected document. */
+  readonly source: string;
+}
+
+export interface ReadDisplayCurriculumImageResult {
+  readonly bytes: Buffer;
+  readonly contentType: string;
+}
+
 export interface ReadModelSafeCurriculumMaterialResult {
   readonly audience: "model_context";
   readonly sectionId: string;
@@ -141,6 +152,8 @@ export type CurriculumMaterialErrorCode =
   | "root_document_unavailable"
   | "stale_manifest"
   | "document_not_found"
+  | "image_not_found"
+  | "image_unavailable"
   | "repository_unavailable";
 
 export class CurriculumMaterialError extends Error {
@@ -164,6 +177,17 @@ const DEFAULT_LIMITS: CurriculumMaterialLimits = Object.freeze({
   maxLinksPerDocument: 128,
   maxTotalLinks: 512,
 });
+
+const MAX_MATERIAL_IMAGE_BYTES = 16 * 1024 * 1024;
+const MATERIAL_IMAGE_CONTENT_TYPES = new Map<string, string>([
+  [".avif", "image/avif"],
+  [".gif", "image/gif"],
+  [".jpeg", "image/jpeg"],
+  [".jpg", "image/jpeg"],
+  [".png", "image/png"],
+  [".svg", "image/svg+xml"],
+  [".webp", "image/webp"],
+]);
 
 const SECTION_ID_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 const SECTION_DIRECTORY_PATTERN = /^(\d+)\.(\d+)-/u;
@@ -214,6 +238,10 @@ type ReadableFileResult =
 interface ParsedMarkdownLink {
   readonly label: string;
   readonly target: string;
+}
+
+interface ParsedMarkdownImage {
+  readonly source: string;
 }
 
 interface LocalTarget {
@@ -1404,6 +1432,22 @@ function markdownLinks(markdown: string): ParsedMarkdownLink[] {
   return links;
 }
 
+function markdownImages(markdown: string): ParsedMarkdownImage[] {
+  const images: ParsedMarkdownImage[] = [];
+  const root = parseMarkdown(markdown);
+  const definitions = new Map<string, string>();
+  visitMarkdownNodes(root, (node) => {
+    if (node.type === "definition") definitions.set(node.identifier, node.url);
+  });
+  visitMarkdownNodes(root, (node) => {
+    if (node.type !== "image" && node.type !== "imageReference") return;
+    const source = node.type === "image" ? node.url : definitions.get(node.identifier);
+    if (!source?.trim()) return;
+    images.push({ source: source.trim() });
+  });
+  return images;
+}
+
 function splitLocalTarget(rawTarget: string):
   | { readonly path: string; readonly fragment?: string }
   | undefined {
@@ -1484,6 +1528,66 @@ function classifyLinkTarget(
       ...(split.fragment ? { fragment: split.fragment } : {}),
     },
   };
+}
+
+function localImageTarget(
+  canonicalRoot: string,
+  sourceRelativePath: string,
+  rawTarget: string,
+): { readonly relativePath: string; readonly contentType: string } | undefined {
+  const target = rawTarget.trim();
+  if (
+    !target
+    || /^[a-z][a-z\d+.-]*:/iu.test(target)
+    || target.startsWith("//")
+  ) {
+    return undefined;
+  }
+  const split = splitLocalTarget(target);
+  if (!split?.path || isAbsolute(split.path)) return undefined;
+  const candidate = resolve(canonicalRoot, dirname(sourceRelativePath), split.path);
+  const relativePath = normalizedRelativePath(canonicalRoot, candidate);
+  if (!relativePath || protectedPath(relativePath)) return undefined;
+  const contentType = MATERIAL_IMAGE_CONTENT_TYPES.get(extname(relativePath).toLowerCase());
+  return contentType ? { relativePath, contentType } : undefined;
+}
+
+async function readBoundedMaterialImage(
+  canonicalRoot: string,
+  relativePath: string,
+): Promise<Buffer | undefined> {
+  const segments = relativePath.split("/");
+  let candidate = canonicalRoot;
+  try {
+    for (const segment of segments) {
+      candidate = join(candidate, segment);
+      const metadata = await lstat(candidate);
+      if (metadata.isSymbolicLink()) return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+
+  let canonicalCandidate: string;
+  try {
+    canonicalCandidate = await realpath(candidate);
+  } catch {
+    return undefined;
+  }
+  if (!normalizedRelativePath(canonicalRoot, canonicalCandidate)) return undefined;
+
+  let handle;
+  try {
+    handle = await open(candidate, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const metadata = await handle.stat();
+    if (!metadata.isFile() || metadata.size > MAX_MATERIAL_IMAGE_BYTES) return undefined;
+    const bytes = await handle.readFile();
+    return bytes.byteLength <= MAX_MATERIAL_IMAGE_BYTES ? bytes : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close();
+  }
 }
 
 async function readBoundedRegularFile(
@@ -1615,6 +1719,55 @@ export class CurriculumMaterialService {
         : "structured_instructions",
       browserOnlyFoldCount: projected.browserOnlyFoldCount,
     });
+  }
+
+  /**
+   * Reads one image explicitly referenced by the selected learner document.
+   * The caller never supplies a filesystem path with independent authority:
+   * the exact source must occur as a Markdown image in the revision-bound
+   * document, then resolve to a bounded regular image inside the repository.
+   */
+  public async readImageForDisplay(
+    input: ReadDisplayCurriculumImageInput,
+  ): Promise<ReadDisplayCurriculumImageResult> {
+    const { selected } = await this.resolveRead(input);
+    const referenced = markdownImages(selected.markdown)
+      .some((image) => image.source === input.source);
+    if (!referenced) {
+      throw new CurriculumMaterialError(
+        "image_not_found",
+        404,
+        "The image is not referenced by the selected curriculum document",
+      );
+    }
+
+    let canonicalRoot: string;
+    try {
+      canonicalRoot = await realpath(this.aisbRoot);
+    } catch {
+      throw new CurriculumMaterialError(
+        "repository_unavailable",
+        503,
+        "The AISB curriculum repository is unavailable",
+      );
+    }
+    const target = localImageTarget(canonicalRoot, selected.relativePath, input.source);
+    if (!target) {
+      throw new CurriculumMaterialError(
+        "image_unavailable",
+        404,
+        "The referenced image is not an available local curriculum asset",
+      );
+    }
+    const bytes = await readBoundedMaterialImage(canonicalRoot, target.relativePath);
+    if (!bytes) {
+      throw new CurriculumMaterialError(
+        "image_unavailable",
+        404,
+        "The referenced image is not an available bounded regular file",
+      );
+    }
+    return Object.freeze({ bytes, contentType: target.contentType });
   }
 
   public async readForModelContext(

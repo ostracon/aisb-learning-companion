@@ -150,6 +150,19 @@ Open <http://127.0.0.1:7575/diagnostics> and select **Run self-test**. It checks
 the AISB path, Codex sign-in, model access, and restricted tutor/review
 profiles.
 
+## Reading course material
+
+Open **Study** to read each section README and its linked learner documents
+beside your notes. Markdown links remain navigable inside the bounded course
+graph. Images authored in those documents are rendered inline: repository
+images are read through a revision-bound local endpoint, while HTTPS images
+load at their authored location without sending a referrer. Local image reads
+are limited to explicitly referenced regular files inside the AISB checkout.
+
+This is separate from **Prepare references**. Course images appear as part of
+the course page; external papers and web references are still downloaded and
+indexed only when you explicitly start a preparation run.
+
 ## Optional image generation
 
 Image generation is the only feature that needs an OpenAI Platform API key.

@@ -17,6 +17,12 @@ export interface MarkdownBlockDirectiveInput {
   readonly value: string;
 }
 
+export interface MarkdownImageRenderInput {
+  readonly alt: string;
+  readonly src: string;
+  readonly title?: string;
+}
+
 export interface SafeMarkdownProps {
   readonly markdown: string;
   /** Prefix keeps heading anchors isolated when several projections are mounted. */
@@ -28,6 +34,8 @@ export interface SafeMarkdownProps {
   readonly activateLinks?: boolean;
   /** Material readers may route repository-relative links without exposing file paths. */
   readonly renderLink?: (input: MarkdownLinkRenderInput) => ReactNode;
+  /** Trusted reading surfaces may resolve authored images through app-owned routes. */
+  readonly renderImage?: (input: MarkdownImageRenderInput) => ReactNode;
   /** App-owned fenced directives may render structured UI instead of code. */
   readonly renderBlockDirective?: (input: MarkdownBlockDirectiveInput) => ReactNode | undefined;
   /** Model output may show raw tag syntax as escaped text; content readers omit it. */
@@ -253,6 +261,7 @@ export function SafeMarkdown({
   omittedImageLabel,
   activateLinks = false,
   renderLink,
+  renderImage,
   renderBlockDirective,
   showRawHtmlSource = false,
 }: SafeMarkdownProps) {
@@ -300,7 +309,8 @@ export function SafeMarkdown({
             </span>
           );
         },
-        img: ({ alt }) => {
+        img: ({ alt = "", src = "", title }) => {
+          if (renderImage && src) return renderImage({ alt, src, ...(title ? { title } : {}) });
           if (omittedImageLabel === null) return null;
           return (
             <span className="markdown-image-omitted">

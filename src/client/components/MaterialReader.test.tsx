@@ -69,6 +69,8 @@ const material: MaterialDocumentResponse = {
       "[Next section](../1.2/README.md)",
       "",
       "![Remote diagram](https://tracker.example/image.png)",
+      "",
+      "![Local inspect view](day2_utils/inspect-view.png)",
     ].join("\n"),
     folds: [],
   },
@@ -113,9 +115,15 @@ describe("MaterialReader", () => {
     expect(screen.getByRole("button", { name: /1\.1\s*Model boundaries/ }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("button", { name: /Readme\s*Model boundaries/ }).getAttribute("aria-current")).toBe("page");
     expect(screen.queryByRole("link", { name: "Raw relative link" })).toBeNull();
-    expect(screen.queryByRole("img")).toBeNull();
     expect(screen.queryByText(/Image omitted from the safe reader/)).toBeNull();
-    expect(screen.queryByText("Remote diagram")).toBeNull();
+    const remoteImage = screen.getByRole("img", { name: "Remote diagram" });
+    expect(remoteImage.getAttribute("src")).toBe("https://tracker.example/image.png");
+    expect(remoteImage.getAttribute("loading")).toBe("lazy");
+    expect(remoteImage.getAttribute("referrerpolicy")).toBe("no-referrer");
+    const localImage = screen.getByRole("img", { name: "Local inspect view" });
+    expect(localImage.getAttribute("src")).toBe(
+      `/api/materials/sections/1.1/documents/${documentId}/image?manifest_revision=${encodeURIComponent(manifestRevision)}&source=day2_utils%2Finspect-view.png`,
+    );
 
     const bareUrl = screen.getByRole("link", { name: "https://bare.example/path" });
     expect(bareUrl.getAttribute("href")).toBe("https://bare.example/path");
