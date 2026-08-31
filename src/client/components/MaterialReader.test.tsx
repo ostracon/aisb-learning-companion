@@ -114,7 +114,8 @@ describe("MaterialReader", () => {
     expect(screen.getByRole("button", { name: /Readme\s*Model boundaries/ }).getAttribute("aria-current")).toBe("page");
     expect(screen.queryByRole("link", { name: "Raw relative link" })).toBeNull();
     expect(screen.queryByRole("img")).toBeNull();
-    expect(screen.getByText(/Image omitted from the safe reader/)).toBeTruthy();
+    expect(screen.queryByText(/Image omitted from the safe reader/)).toBeNull();
+    expect(screen.queryByText("Remote diagram")).toBeNull();
 
     const bareUrl = screen.getByRole("link", { name: "https://bare.example/path" });
     expect(bareUrl.getAttribute("href")).toBe("https://bare.example/path");

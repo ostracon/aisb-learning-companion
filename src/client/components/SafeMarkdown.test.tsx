@@ -75,6 +75,21 @@ describe("SafeMarkdown", () => {
     expect(container.textContent).not.toContain("window.compromised");
   });
 
+  it("can omit remote images without rendering a placeholder", () => {
+    const { container } = render(
+      <SafeMarkdown
+        markdown={"Before\n\n![Inspect view](https://tracker.example/image.png)\n\nAfter"}
+        headingIdPrefix="silent-image-heading-"
+        inertLinkTitle="Links are inactive"
+        omittedImageLabel={null}
+      />,
+    );
+
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(container.textContent?.replace(/\s+/gu, "")).toBe("BeforeAfter");
+    expect(container.textContent).not.toContain("Inspect view");
+  });
+
   it("uses punctuation-safe GitHub-style slugs and stable duplicate suffixes", () => {
     render(
       <SafeMarkdown

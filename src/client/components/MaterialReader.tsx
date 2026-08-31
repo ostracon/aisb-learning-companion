@@ -163,7 +163,7 @@ function MaterialProjection({
       markdown={projection.markdown}
       headingIdPrefix={headingIdPrefix}
       inertLinkTitle="This repository target is unavailable"
-      omittedImageLabel="Image omitted from the safe reader"
+      omittedImageLabel={null}
       renderLink={renderLink}
       renderBlockDirective={({ language, value }) => {
         if (language !== MATERIAL_FOLD_DIRECTIVE_LANGUAGE) return undefined;

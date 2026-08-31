@@ -22,7 +22,8 @@ export interface SafeMarkdownProps {
   /** Prefix keeps heading anchors isolated when several projections are mounted. */
   readonly headingIdPrefix: string;
   readonly inertLinkTitle: string;
-  readonly omittedImageLabel: string;
+  /** Null omits remote images silently when a reading surface should not show security chrome. */
+  readonly omittedImageLabel: string | null;
   /** Normal browser navigation for safe URLs. The default remains inert for model text. */
   readonly activateLinks?: boolean;
   /** Material readers may route repository-relative links without exposing file paths. */
@@ -299,11 +300,14 @@ export function SafeMarkdown({
             </span>
           );
         },
-        img: ({ alt }) => (
-          <span className="markdown-image-omitted">
-            {omittedImageLabel}{alt ? `: ${alt}` : ""}
-          </span>
-        ),
+        img: ({ alt }) => {
+          if (omittedImageLabel === null) return null;
+          return (
+            <span className="markdown-image-omitted">
+              {omittedImageLabel}{alt ? `: ${alt}` : ""}
+            </span>
+          );
+        },
         pre: ({ children }) => {
           const child = Array.isArray(children) ? children[0] : children;
           const childProps = isValidElement<{ className?: string; children?: ReactNode }>(child)
