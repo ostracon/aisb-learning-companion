@@ -30,7 +30,6 @@ export function PaneResizeHandle({
   const finishPointerResize = (event: PointerEvent<HTMLDivElement>) => {
     if (activePointerId.current !== event.pointerId) return;
     activePointerId.current = null;
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
     onResizeStateChange(false);
   };
 
@@ -60,13 +59,13 @@ export function PaneResizeHandle({
         activePointerId.current = event.pointerId;
         event.currentTarget.setPointerCapture?.(event.pointerId);
         onResizeStateChange(true);
-        onPointerPosition(event.clientX);
       }}
       onPointerMove={(event) => {
         if (activePointerId.current === event.pointerId) onPointerPosition(event.clientX);
       }}
       onPointerUp={finishPointerResize}
       onPointerCancel={finishPointerResize}
+      onLostPointerCapture={finishPointerResize}
     />
   );
 }
