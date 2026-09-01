@@ -27,7 +27,11 @@ import type { TurnStartParams } from "./generated/v2/TurnStartParams.js";
 import type { TurnStartResponse } from "./generated/v2/TurnStartResponse.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
-const DEFAULT_MAX_LINE_BYTES = 2 * 1024 * 1024;
+// Resuming a long-running tutor thread returns its accumulated thread payload
+// as one JSONL response. Real course threads can legitimately exceed the old
+// 2 MiB limit, so keep the protocol bounded while leaving headroom for a full
+// study-day conversation.
+const DEFAULT_MAX_LINE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_MAX_STDERR_BYTES = 64 * 1024;
 const DEFAULT_MAX_OUTBOUND_BYTES = 2 * 1024 * 1024;
 

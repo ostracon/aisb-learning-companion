@@ -362,4 +362,27 @@ describe("AppServerClient", () => {
     await expect(oversizedClient.listModels()).rejects.toBeInstanceOf(AppServerProtocolError);
     expect(oversized.killed).toBe(true);
   });
+
+  it("accepts a bounded resume-sized response beyond the legacy 2 MiB limit", async () => {
+    const fake = new FakeAppServerProcess();
+    const largeDisplayName = "x".repeat(3 * 1024 * 1024);
+    fake.onMessage = (message) => {
+      if (message.method === "model/list") {
+        fake.reply({
+          id: message.id,
+          result: {
+            data: [{ id: "large-history-probe", displayName: largeDisplayName }],
+            nextCursor: null,
+          },
+        });
+      }
+    };
+
+    const client = await connect(fake);
+    await expect(client.listModels()).resolves.toMatchObject({
+      data: [{ id: "large-history-probe" }],
+    });
+    expect(fake.killed).toBe(false);
+    client.close();
+  });
 });
