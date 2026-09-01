@@ -744,6 +744,84 @@ describe("useTutorSession turn reconciliation", () => {
     expect(result.current.unresolvedMessage?.text).toBe("  exact text retained before WAL  ");
   });
 
+  it("does not create a pending lock when the server confirms the turn was not dispatched", async () => {
+    let turnPosts = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST" && String(input) === "/api/tutor/turns") {
+        turnPosts += 1;
+        return response({
+          error: "Tutor continuity is unavailable. No turn was sent and your note remains intact; please retry.",
+          code: "tutor_not_dispatched",
+        }, 503);
+      }
+      return response(history("scope-a", []));
+    });
+    const { result } = renderHook(() => useTutorSession({
+      enabled: true,
+      scope: A_SCOPE,
+      fetch: fetchMock as typeof fetch,
+      createId: () => `client-not-dispatched-${turnPosts}`,
+    }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.send(submission("Question retained in the composer"));
+    });
+
+    expect(result.current.unresolvedMessage).toBeNull();
+    expect(result.current.error).toMatch(/No turn was sent/i);
+    expect(window.localStorage.getItem(tutorPendingSubmissionStorageKey("event:event-a"))).toBeNull();
+
+    await act(async () => {
+      await result.current.send(submission("Question retained in the composer"));
+    });
+    expect(turnPosts).toBe(2);
+  });
+
+  it("clears a reloaded browser-only pending lock before a slow history refresh finishes", async () => {
+    const scopeKey = "event:event-a";
+    window.localStorage.setItem(tutorPendingSubmissionStorageKey(scopeKey), JSON.stringify({
+      version: 1,
+      scopeKey,
+      clientMessageId: "client-stale-browser-lock",
+      learnerText: "Restore this exact question",
+      occurredAt: "2026-09-01T16:00:00.000Z",
+    }));
+    const slowHistory = deferred<Response>();
+    let getCount = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (
+        init?.method === "POST"
+        && String(input) === "/api/tutor/session/abandon-uncertain"
+      ) {
+        return Promise.resolve(response({ status: "abandoned", restore_text: true }));
+      }
+      getCount += 1;
+      return getCount === 1
+        ? Promise.resolve(response(history(scopeKey, [])))
+        : slowHistory.promise;
+    });
+    const { result } = renderHook(() => useTutorSession({
+      enabled: true,
+      scope: A_SCOPE,
+      fetch: fetchMock as typeof fetch,
+    }));
+    await waitFor(() => expect(result.current.unresolvedMessage?.text).toBe("Restore this exact question"));
+
+    let resolution: AbandonUncertainTutorTurnResponseBody | false = false;
+    await act(async () => {
+      resolution = await result.current.abandonUnresolved();
+    });
+
+    expect(resolution).toEqual({ status: "abandoned", restore_text: true });
+    expect(result.current.unresolvedMessage).toBeNull();
+    expect(result.current.resolvingUncertain).toBe(false);
+    expect(window.localStorage.getItem(tutorPendingSubmissionStorageKey(scopeKey))).toBeNull();
+
+    slowHistory.resolve(response(history(scopeKey, [])));
+    await act(async () => { await slowHistory.promise; });
+  });
+
   it("does not send different text while an earlier delivery is uncertain", async () => {
     let getCount = 0;
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {

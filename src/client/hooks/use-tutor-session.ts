@@ -256,6 +256,10 @@ function isPreDispatchStaleManifest(reason: unknown): reason is TutorApiError {
   return reason instanceof TutorApiError && reason.code === "stale_manifest";
 }
 
+function isConfirmedPreDispatchFailure(reason: unknown): reason is TutorApiError {
+  return reason instanceof TutorApiError && reason.code === "tutor_not_dispatched";
+}
+
 function hasSubmission(history: TutorSessionHistoryResponse, turnNonce: string): boolean {
   return history.messages.some(
     (message) => message.turn_nonce === turnNonce && message.role === "user",
@@ -633,11 +637,15 @@ export function useTutorSession(options: UseTutorSessionOptions) {
       ephemeralByScopeRef.current.set(submittedScopeKey, status);
     }
 
-    const staleManifestRejectedBeforeDispatch = canonical !== null
+    const rejectedBeforeDispatch = canonical !== null
       && postError !== null
-      && isPreDispatchStaleManifest(postError)
+      && (
+        isPreDispatchStaleManifest(postError)
+        || isConfirmedPreDispatchFailure(postError)
+      )
       && !hasSubmission(canonical, clientMessageId);
-    if (staleManifestRejectedBeforeDispatch) {
+    if (rejectedBeforeDispatch) {
+      const staleManifestRejectedBeforeDispatch = isPreDispatchStaleManifest(postError);
       pendingSubmissionByScopeRef.current.delete(submittedScopeKey);
       clearPersistedPendingSubmission(submittedScopeKey, clientMessageId);
       optimisticByScopeRef.current.delete(submittedScopeKey);
@@ -649,12 +657,18 @@ export function useTutorSession(options: UseTutorSessionOptions) {
         setOptimistic(null);
         setEphemeralStatus(null);
         setSettledSubmission(null);
-        setError(null);
-        setMaterialRefreshNotice({
-          scopeKey: submittedScopeKey,
-          text: "Course material changed on disk. The page context is refreshing; your message remains in the composer. Send it again when ready.",
-        });
-        setMaterialRefreshRequest((request) => request + 1);
+        setError(
+          staleManifestRejectedBeforeDispatch
+            ? null
+            : errorText(postError, "The tutor is temporarily unavailable. No message was sent; retry when ready."),
+        );
+        if (staleManifestRejectedBeforeDispatch) {
+          setMaterialRefreshNotice({
+            scopeKey: submittedScopeKey,
+            text: "Course material changed on disk. The page context is refreshing; your message remains in the composer. Send it again when ready.",
+          });
+          setMaterialRefreshRequest((request) => request + 1);
+        }
       }
       sendingRef.current = false;
       setSending(false);
@@ -748,7 +762,10 @@ export function useTutorSession(options: UseTutorSessionOptions) {
         inputRef.current.scopeKey === current.scopeKey
         && routeGenerationRef.current === generation
       ) {
-        await loadVisibleHistory(current.scope, current.scopeKey, generation);
+        // The explicit resolution already removed the browser lock. Refresh
+        // canonical history in the background so a slow continuity check can
+        // never delay restoring the learner's exact text or re-enabling input.
+        void loadVisibleHistory(current.scope, current.scopeKey, generation);
       }
       return value as unknown as AbandonUncertainTutorTurnResponseBody;
     } catch (reason) {

@@ -440,13 +440,16 @@ export interface ReconcilePendingTutorTurnsInput {
 }
 
 export class TutorServiceError extends Error {
+  public readonly code: string | null;
+
   public constructor(
     message: string,
     public readonly statusCode: 400 | 409 | 503 = 503,
-    options?: ErrorOptions,
+    options?: ErrorOptions & { readonly code?: string },
   ) {
     super(message, options);
     this.name = "TutorServiceError";
+    this.code = options?.code ?? null;
   }
 }
 
@@ -1456,7 +1459,7 @@ export class TutorService {
       throw new TutorServiceError(
         "Tutor continuity is unavailable. No turn was sent and your note remains intact; please retry.",
         503,
-        { cause: error },
+        { cause: error, code: "tutor_not_dispatched" },
       );
     });
     this.#threadResolutionByScope.set(scopeKey, resolution);

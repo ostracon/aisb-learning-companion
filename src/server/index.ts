@@ -1339,7 +1339,10 @@ app.setErrorHandler(async (error, _request, reply) => {
     return;
   }
   if (error instanceof TutorServiceError) {
-    void reply.code(error.statusCode).send({ error: error.message });
+    void reply.code(error.statusCode).send({
+      error: error.message,
+      ...(error.code === null ? {} : { code: error.code }),
+    });
     return;
   }
   if (error instanceof TutorSessionLogStoreError) {
