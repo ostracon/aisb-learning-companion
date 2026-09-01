@@ -15,11 +15,9 @@ const participantInstructionLinkPattern = /\]\((?:\.\/)?([^()/\s]+_instructions\
 const participantAnswerDeclarationPattern =
   /\bcreat(?:e|ing)\b[^\n]{0,180}?`((?:[A-Za-z0-9._-]+\/)?day\d+_answers\.(?:py|md|ipynb))`/giu;
 
-/**
- * Programme day 4 is schedule-only and has no standalone exercise folder.
- * The following content day is authored under the repo's historical Day 4
- * section IDs. Keep this mismatch explicit instead of guessing from event
- * titles or silently dropping material.
+/** Programme day 4 is schedule-only; every other programme day now uses the
+ * repository's matching day identity. Keep the exceptional day explicit so a
+ * calendar change cannot silently hide or renumber repository material.
  */
 export const CURRICULUM_SOURCE_DAY_BY_PROGRAMME_DAY: Readonly<
   Record<LearningDayId, number | null>
@@ -29,7 +27,7 @@ export const CURRICULUM_SOURCE_DAY_BY_PROGRAMME_DAY: Readonly<
   day2: 2,
   day3: 3,
   day4: null,
-  day5: 4,
+  day5: 5,
   day6: 6,
   day7: 7,
 });

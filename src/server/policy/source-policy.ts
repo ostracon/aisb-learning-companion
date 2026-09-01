@@ -25,7 +25,7 @@ const protectedFilePatterns = [
   /_test\.py$/i,
   /_instructions\.md$/i,
   /(^|\.)env($|\.)/i,
-  /(?:credential|secret|token|private[_-]?key)/i,
+  /(?:^|[/._-])(?:credentials?|secrets?|tokens?|private[_-]?keys?)(?:$|[/._-])/i,
 ];
 
 function pathInside(root: string, candidate: string): boolean {

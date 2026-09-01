@@ -96,12 +96,12 @@ describe("participant target metadata", () => {
     });
   });
 
-  it("keeps the visit schedule-only and maps programme Day 5 to repository Day 4", async () => {
+  it("keeps the visit schedule-only and maps programme Day 5 to repository Day 5", async () => {
     const { root, service } = await fixture("Create `day1_answers.py` in `1.1-example/`.");
-    const modelEditing = join(root, "4.1-model-editing");
+    const modelEditing = join(root, "5.1-model-editing");
     await mkdir(modelEditing);
     await writeFile(join(modelEditing, "README.md"), [
-      "# 4.1 — Model editing",
+      "# 5.1 — Model editing",
       "",
       "| Area | Prerequisites | Main learnings going out |",
       "| --- | --- | --- |",
@@ -110,12 +110,12 @@ describe("participant target metadata", () => {
 
     expect(await service.readDay("day4")).toEqual([]);
     expect(await service.readDay("day5")).toEqual([
-      expect.objectContaining({ sectionId: "4.1", sourcePath: "4.1-model-editing/README.md" }),
+      expect.objectContaining({ sectionId: "5.1", sourcePath: "5.1-model-editing/README.md" }),
     ]);
-    expect(await service.readRepositoryDay("day4")).toEqual([
-      expect.objectContaining({ sectionId: "4.1", sourcePath: "4.1-model-editing/README.md" }),
+    expect(await service.readRepositoryDay("day4")).toEqual([]);
+    expect(await service.readRepositoryDay("day5")).toEqual([
+      expect.objectContaining({ sectionId: "5.1", sourcePath: "5.1-model-editing/README.md" }),
     ]);
-    expect(await service.readRepositoryDay("day5")).toEqual([]);
-    expect((await service.readAllRepositoryDays()).day4).toHaveLength(1);
+    expect((await service.readAllRepositoryDays()).day5).toHaveLength(1);
   });
 });

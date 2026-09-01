@@ -8,6 +8,7 @@ import type {
   AbandonUncertainTutorTurnResponseBody,
   BootstrapResponse,
   EventCurriculumBindingSnapshotResponse,
+  LearningDayId,
   LearningProgressSnapshotResponse,
   ScheduleSnapshotResponse,
   SetLearningOutcomeCompletionResponse,
@@ -94,6 +95,11 @@ import {
 } from "./images/service.js";
 import { registerBackupRoutes } from "./backup/routes.js";
 import { BackupExportService } from "./backup/service.js";
+
+function repositoryDayIdFor(programmeDayId: LearningDayId): LearningDayId | null {
+  const sourceDay = CURRICULUM_SOURCE_DAY_BY_PROGRAMME_DAY[programmeDayId];
+  return sourceDay === null ? null : `day${sourceDay}` as LearningDayId;
+}
 
 const config = resolveRuntimeConfig();
 const app = Fastify({ logger: false, bodyLimit: 9 * 1024 * 1024 });
@@ -730,13 +736,13 @@ app.get("/api/bootstrap", async (): Promise<BootstrapResponse> => {
     sectionsByDay,
     repositorySectionsByDay,
     programmeToRepositoryDay: {
-      day1: CURRICULUM_SOURCE_DAY_BY_PROGRAMME_DAY.day1 === null ? null : "day1",
-      day2: CURRICULUM_SOURCE_DAY_BY_PROGRAMME_DAY.day2 === null ? null : "day2",
-      day3: CURRICULUM_SOURCE_DAY_BY_PROGRAMME_DAY.day3 === null ? null : "day3",
-      day4: null,
-      day5: "day4",
-      day6: CURRICULUM_SOURCE_DAY_BY_PROGRAMME_DAY.day6 === null ? null : "day6",
-      day7: CURRICULUM_SOURCE_DAY_BY_PROGRAMME_DAY.day7 === null ? null : "day7",
+      day1: repositoryDayIdFor("day1"),
+      day2: repositoryDayIdFor("day2"),
+      day3: repositoryDayIdFor("day3"),
+      day4: repositoryDayIdFor("day4"),
+      day5: repositoryDayIdFor("day5"),
+      day6: repositoryDayIdFor("day6"),
+      day7: repositoryDayIdFor("day7"),
     },
     diagnostics,
   };
