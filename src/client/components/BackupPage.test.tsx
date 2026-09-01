@@ -225,6 +225,10 @@ describe("BackupPage", () => {
       JSON.stringify({ version: 1, expanded: false }),
     );
     window.localStorage.setItem("aisb-companion:manager-composer:v1", "Plan tomorrow");
+    window.localStorage.setItem(
+      "aisb-companion:pane-sizes:v1",
+      JSON.stringify({ version: 1, tutorWidth: 512, studyMaterialFraction: 0.46 }),
+    );
     window.localStorage.setItem("aisb-companion:tutor-composer:event:event-a", "Exact tutor draft");
     window.localStorage.setItem(
       "aisb-companion:tutor-pending:event:event-a",
@@ -255,6 +259,10 @@ describe("BackupPage", () => {
         value: JSON.stringify({ version: 1, expanded: false }),
       },
       { key: "aisb-companion:manager-composer:v1", value: "Plan tomorrow" },
+      {
+        key: "aisb-companion:pane-sizes:v1",
+        value: JSON.stringify({ version: 1, tutorWidth: 512, studyMaterialFraction: 0.46 }),
+      },
       { key: "aisb-companion:tutor-composer:event:event-a", value: "Exact tutor draft" },
       {
         key: "aisb-companion:tutor-pending:event:event-a",

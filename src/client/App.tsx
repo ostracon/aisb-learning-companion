@@ -1,4 +1,4 @@
-import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Link,
   Navigate,
@@ -29,6 +29,7 @@ import { ReviewPanel, reviewPanelScopeKey } from "./components/ReviewPanel.js";
 import { WorkspaceLauncher } from "./components/WorkspaceLauncher.js";
 import { NoteControls } from "./components/NoteControls.js";
 import { MaterialReader } from "./components/MaterialReader.js";
+import { PaneResizeHandle } from "./components/PaneResizeHandle.js";
 import { NoteMarkdownEditor } from "./components/NoteMarkdownEditor.js";
 import { TutorActiveTurnControls } from "./components/TutorActiveTurnControls.js";
 import { TutorMessageContent } from "./components/TutorMessageContent.js";
@@ -49,6 +50,7 @@ import {
 import { useLearningProgress } from "./hooks/use-learning-progress.js";
 import { useLearningOutcomesDisclosure } from "./hooks/use-learning-outcomes-disclosure.js";
 import { useWorkspaceLayout } from "./hooks/use-workspace-layout.js";
+import { useWorkspacePaneSizes } from "./hooks/use-workspace-pane-sizes.js";
 import {
   createWorkspaceScrollCarryState,
   useWorkspaceScrollRestoration,
@@ -961,6 +963,7 @@ function WorkspacePage({
   const location = useLocation();
   const navigate = useNavigate();
   const { layout, dispatch } = useWorkspaceLayout();
+  const paneSizes = useWorkspacePaneSizes();
   const layoutIdentity = [
     layout.panels.navigation,
     layout.panels.schedule,
@@ -969,6 +972,9 @@ function WorkspacePage({
   ].join(":");
   const workspaceScroll = useWorkspaceScrollRestoration(location, layoutIdentity);
   const compactViewport = useCompactViewport();
+  const shellRef = useRef<HTMLDivElement>(null);
+  const studySplitRef = useRef<HTMLDivElement>(null);
+  const [resizingPane, setResizingPane] = useState<"study" | "tutor" | null>(null);
   const navigationPanelRef = useRef<HTMLDivElement>(null);
   const tutorPanelRef = useRef<HTMLDivElement>(null);
   const navigationPanelButtonRef = useRef<HTMLButtonElement>(null);
@@ -988,6 +994,42 @@ function WorkspacePage({
     programmeDays: data.programmeDays,
     events: data.events,
   }));
+  const constrainTutorWidth = useCallback((requestedWidth: number) => {
+    const shell = shellRef.current;
+    if (shell === null) {
+      paneSizes.setTutorWidth(requestedWidth);
+      return;
+    }
+    const shellWidth = shell.getBoundingClientRect().width;
+    const navigationWidth = navigationPanelRef.current?.parentElement?.getBoundingClientRect().width ?? 0;
+    const dynamicMaximum = Math.max(320, Math.min(800, shellWidth - navigationWidth - 560));
+    paneSizes.setTutorWidth(Math.min(dynamicMaximum, Math.max(320, requestedWidth)));
+  }, [paneSizes.setTutorWidth]);
+  const resizeTutorAt = useCallback((clientX: number) => {
+    const shell = shellRef.current;
+    if (shell === null) return;
+    constrainTutorWidth(shell.getBoundingClientRect().right - clientX);
+  }, [constrainTutorWidth]);
+  const nudgeTutorDivider = useCallback((delta: number) => {
+    constrainTutorWidth(paneSizes.sizes.tutorWidth - delta);
+  }, [constrainTutorWidth, paneSizes.sizes.tutorWidth]);
+  const resizeStudyAt = useCallback((clientX: number) => {
+    const split = studySplitRef.current;
+    if (split === null) return;
+    const bounds = split.getBoundingClientRect();
+    if (bounds.width <= 0) return;
+    const minimumWidth = Math.min(320, bounds.width / 2);
+    const maximumWidth = Math.max(minimumWidth, bounds.width - minimumWidth - 28);
+    const materialWidth = Math.min(maximumWidth, Math.max(minimumWidth, clientX - bounds.left));
+    paneSizes.setStudyMaterialFraction(materialWidth / bounds.width);
+  }, [paneSizes.setStudyMaterialFraction]);
+  const nudgeStudyDivider = useCallback((delta: number) => {
+    const splitWidth = studySplitRef.current?.getBoundingClientRect().width ?? 0;
+    if (splitWidth <= 0) return;
+    paneSizes.setStudyMaterialFraction(
+      paneSizes.sizes.studyMaterialFraction + delta / splitWidth,
+    );
+  }, [paneSizes.setStudyMaterialFraction, paneSizes.sizes.studyMaterialFraction]);
   const [mobilePanel, setMobilePanel] = useState<"navigation" | "tutor" | null>(null);
   const restoredAnchorCandidate = window.history.state?.aisbNowAnchor as NowAnchor | undefined;
   // A full reload creates a new bootstrap identity and is an explicit request to
@@ -1645,12 +1687,19 @@ function WorkspacePage({
     layout.focusNotes ? "focus-notes" : "",
     compactViewport && mobilePanel === "navigation" ? "mobile-nav-open" : "",
     compactViewport && mobilePanel === "tutor" ? "mobile-tutor-open" : "",
+    resizingPane !== null ? "pane-resizing" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
-    <div className={shellClasses}>
+    <div
+      className={shellClasses}
+      ref={shellRef}
+      style={{
+        "--preferred-tutor-width": `${paneSizes.sizes.tutorWidth}px`,
+      } as CSSProperties}
+    >
       {compactViewport && mobilePanel !== null ? (
         <button
           className="mobile-panel-backdrop"
@@ -2021,7 +2070,13 @@ function WorkspacePage({
             ) : null}
 
             {isStudy ? (
-              <div className={`study-split ${layout.panels.schedule && !layout.focusNotes ? "" : "material-collapsed"}`.trim()}>
+              <div
+                className={`study-split ${layout.panels.schedule && !layout.focusNotes ? "" : "material-collapsed"}`.trim()}
+                ref={studySplitRef}
+                style={{
+                  "--study-material-share": `${paneSizes.sizes.studyMaterialFraction * 100}%`,
+                } as CSSProperties}
+              >
                 {layout.panels.schedule && !layout.focusNotes ? (
                   <div className="study-material-pane">
                     <div className="study-material-toolbar">
@@ -2055,6 +2110,20 @@ function WorkspacePage({
                     Show study material
                   </button>
                 )}
+                {layout.panels.schedule && !layout.focusNotes ? (
+                  <PaneResizeHandle
+                    className="study-pane-resizer"
+                    label="Resize course material and notes"
+                    valueNow={paneSizes.sizes.studyMaterialFraction * 100}
+                    valueMin={28}
+                    valueMax={72}
+                    valueText={`${Math.round(paneSizes.sizes.studyMaterialFraction * 100)}% for course material`}
+                    onPointerPosition={resizeStudyAt}
+                    onNudge={nudgeStudyDivider}
+                    onReset={paneSizes.resetStudyMaterialFraction}
+                    onResizeStateChange={(resizing) => setResizingPane(resizing ? "study" : null)}
+                  />
+                ) : null}
                 <NotesWorkspace
                   className="study-notes"
                   dayId={selectedDayId}
@@ -2088,6 +2157,20 @@ function WorkspacePage({
         aria-label="Tutor conversation"
         inert={compactViewport && mobilePanel === "navigation" ? true : undefined}
       >
+        {layout.panels.tutor && !layout.focusNotes ? (
+          <PaneResizeHandle
+            className="tutor-pane-resizer"
+            label="Resize workspace and assistant"
+            valueNow={paneSizes.sizes.tutorWidth}
+            valueMin={320}
+            valueMax={800}
+            valueText={`${Math.round(paneSizes.sizes.tutorWidth)} pixels for the assistant`}
+            onPointerPosition={resizeTutorAt}
+            onNudge={nudgeTutorDivider}
+            onReset={paneSizes.resetTutorWidth}
+            onResizeStateChange={(resizing) => setResizingPane(resizing ? "tutor" : null)}
+          />
+        ) : null}
         <div
           className="panel-inner"
           id="tutor-panel-content"

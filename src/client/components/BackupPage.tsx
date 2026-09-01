@@ -24,6 +24,7 @@ import "../styles/backup.css";
 const HASH = /^sha256:[a-f0-9]{64}$/u;
 const BACKUP_LOCAL_STORAGE_KEYS = [
   "aisb-companion:layout:v1",
+  "aisb-companion:pane-sizes:v1",
   learningOutcomesDisclosurePreferenceKey,
   "aisb-companion:manager-composer:v1",
 ] as const;

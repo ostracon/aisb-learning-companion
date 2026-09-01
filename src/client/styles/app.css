@@ -87,7 +87,7 @@ body {
 
 .app-shell {
   --nav-width: 17.25rem;
-  --tutor-width: 26.5rem;
+  --tutor-width: var(--preferred-tutor-width, 26.5rem);
   display: grid;
   grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--tutor-width);
   width: 100%;
@@ -95,6 +95,12 @@ body {
   overflow: hidden;
   background: var(--paper);
   transition: grid-template-columns 220ms var(--ease);
+}
+
+.app-shell.pane-resizing {
+  cursor: col-resize;
+  user-select: none;
+  transition: none;
 }
 
 .app-shell.nav-collapsed {
@@ -132,6 +138,77 @@ body {
 
 .tutor-panel {
   border-left: 1px solid var(--divider);
+}
+
+.pane-resizer {
+  position: relative;
+  z-index: 5;
+  align-self: stretch;
+  width: 0.9rem;
+  min-height: 3rem;
+  border: 0;
+  outline: 0;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.pane-resizer::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--divider);
+  content: "";
+  transform: translateX(-50%);
+  transition: width 100ms ease, background-color 100ms ease;
+}
+
+.pane-resizer::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.24rem;
+  height: 2.3rem;
+  border-radius: 999px;
+  background: var(--paper-raised);
+  box-shadow: 0 0 0 1px var(--divider-strong);
+  content: "";
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 100ms ease, box-shadow 100ms ease;
+}
+
+.pane-resizer:hover::before,
+.pane-resizer:focus-visible::before,
+.app-shell.pane-resizing .pane-resizer::before {
+  width: 2px;
+  background: var(--cobalt);
+}
+
+.pane-resizer:hover::after,
+.pane-resizer:focus-visible::after,
+.app-shell.pane-resizing .pane-resizer::after {
+  box-shadow: 0 0 0 1px var(--cobalt);
+  opacity: 1;
+}
+
+.pane-resizer:focus-visible::after {
+  outline: 2px solid color-mix(in srgb, var(--cobalt) 35%, transparent);
+  outline-offset: 3px;
+}
+
+.tutor-pane-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
+}
+
+.tutor-pane-resizer::before {
+  left: 0;
+  transform: none;
 }
 
 .panel-inner {
@@ -1275,20 +1352,24 @@ body {
 
 .study-split {
   display: grid;
-  grid-template-columns: minmax(27rem, 1.2fr) minmax(22rem, 0.8fr);
-  gap: clamp(1.25rem, 1.5vw, 1.75rem);
+  grid-template-columns: minmax(20rem, var(--study-material-share, 58%)) 0 minmax(20rem, 1fr);
+  column-gap: clamp(0.8rem, 1vw, 1.15rem);
   align-items: start;
 }
 
 .study-split.material-collapsed {
   grid-template-columns: 1fr;
+  column-gap: 0;
 }
 
 .study-material-pane {
   min-width: 0;
   padding-top: 0.9rem;
-  border-right: 1px solid var(--divider);
-  padding-right: clamp(1.25rem, 1.5vw, 1.75rem);
+}
+
+.study-pane-resizer {
+  grid-column: 2;
+  justify-self: center;
 }
 
 .study-material-toolbar {
@@ -3407,6 +3488,10 @@ body {
     border-bottom: 1px solid var(--divider);
   }
 
+  .study-pane-resizer {
+    display: none;
+  }
+
   .study-notes {
     position: static;
     max-height: none;
@@ -3434,6 +3519,10 @@ body {
     border-bottom: 1px solid var(--divider);
   }
 
+  .study-pane-resizer {
+    display: none;
+  }
+
   .study-notes {
     position: static;
     max-height: none;
@@ -3442,6 +3531,10 @@ body {
 }
 
 @media (max-width: 58rem) {
+  .tutor-pane-resizer {
+    display: none;
+  }
+
   .app-shell,
   .app-shell.nav-collapsed,
   .app-shell.tutor-collapsed {
