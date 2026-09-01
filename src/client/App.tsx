@@ -2040,6 +2040,7 @@ function WorkspacePage({
                       selectedSectionId={selectedSection?.sectionId ?? null}
                       selectedDocumentId={params.documentId ?? null}
                       selectedFragment={location.hash.startsWith("#") ? location.hash.slice(1) : null}
+                      refreshToken={tutorSession.materialRefreshRequest}
                       allowFragmentScroll={!workspaceScroll.arrivedWithSavedPosition}
                       onNavigate={navigateStudyMaterial}
                       onContextChanged={setStudyMaterialContext}

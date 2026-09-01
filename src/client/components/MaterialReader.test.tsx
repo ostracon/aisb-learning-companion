@@ -208,6 +208,65 @@ describe("MaterialReader", () => {
     expect(screen.getByRole("button", { name: /Exercises\s*Boundary exercises/ }).getAttribute("aria-current")).toBe("page");
   });
 
+  it("reloads the manifest and document when a stale tutor context requests a refresh", async () => {
+    const refreshedRevision = `sha256:${"f".repeat(64)}`;
+    const refreshedManifest: MaterialManifestResponse = {
+      ...manifest,
+      revision: refreshedRevision,
+      documents: [{
+        ...manifest.documents[0]!,
+        contentHash: "1".repeat(64),
+      }],
+    };
+    const refreshedMaterial: MaterialDocumentResponse = {
+      ...material,
+      manifestRevision: refreshedRevision,
+      document: refreshedManifest.documents[0]!,
+      display: { markdown: "# Refreshed course material", folds: [] },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(manifest))
+      .mockResolvedValueOnce(response(material))
+      .mockResolvedValueOnce(response(refreshedManifest))
+      .mockResolvedValueOnce(response(refreshedMaterial));
+    vi.stubGlobal("fetch", fetchMock);
+    const contextChanged = vi.fn();
+    const view = render(
+      <MaterialReader
+        dayId="day1"
+        sections={[section]}
+        selectedSectionId="1.1"
+        selectedDocumentId={documentId}
+        selectedFragment={null}
+        refreshToken={0}
+        onNavigate={vi.fn()}
+        onContextChanged={contextChanged}
+      />,
+    );
+    expect(await screen.findByRole("heading", { name: "Safe page" })).toBeTruthy();
+
+    view.rerender(
+      <MaterialReader
+        dayId="day1"
+        sections={[section]}
+        selectedSectionId="1.1"
+        selectedDocumentId={documentId}
+        selectedFragment={null}
+        refreshToken={1}
+        onNavigate={vi.fn()}
+        onContextChanged={contextChanged}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Refreshed course material" })).toBeTruthy();
+    expect(fetchMock.mock.calls.filter(([url]) =>
+      String(url) === "/api/materials/sections/1.1",
+    )).toHaveLength(2);
+    expect(contextChanged).toHaveBeenLastCalledWith(expect.objectContaining({
+      manifestRevision: refreshedRevision,
+    }));
+  });
+
   it("preserves a verified heading fragment while canonicalizing a section route to its README", async () => {
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(response(manifest))

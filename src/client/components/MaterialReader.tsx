@@ -30,6 +30,8 @@ interface MaterialReaderProps {
   readonly selectedSectionId: string | null;
   readonly selectedDocumentId: string | null;
   readonly selectedFragment: string | null;
+  /** Forces a fresh manifest/document read after a deterministic stale-context rejection. */
+  readonly refreshToken?: number;
   /** A restored history-entry position wins over replaying its original fragment. */
   readonly allowFragmentScroll?: boolean;
   readonly onNavigate: (path: string, options?: { replace?: boolean }) => void;
@@ -243,6 +245,7 @@ export function MaterialReader({
   selectedSectionId,
   selectedDocumentId,
   selectedFragment,
+  refreshToken = 0,
   allowFragmentScroll = true,
   onNavigate,
   onContextChanged,
@@ -327,7 +330,7 @@ export function MaterialReader({
 
   useEffect(() => {
     onContextChanged?.(null);
-  }, [onContextChanged, selectedSectionId, selectedDocumentId]);
+  }, [onContextChanged, refreshToken, selectedSectionId, selectedDocumentId]);
 
   useEffect(() => {
     if (!selectedSection) {
@@ -359,7 +362,7 @@ export function MaterialReader({
         if (!controller.signal.aborted) setManifestLoading(false);
       });
     return () => controller.abort();
-  }, [selectedSection]);
+  }, [refreshToken, selectedSection]);
 
   useEffect(() => {
     if (!selectedSection || !manifest) return;

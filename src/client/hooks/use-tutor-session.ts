@@ -33,8 +33,24 @@ interface PendingSubmission {
   readonly occurredAt: string;
 }
 
+interface ScopedNotice {
+  readonly scopeKey: string;
+  readonly text: string;
+}
+
 export interface SettledTutorSubmission extends PendingSubmission {
   readonly clearDraft: boolean;
+}
+
+class TutorApiError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+    readonly currentManifestRevision: string | null,
+  ) {
+    super(message);
+    this.name = "TutorApiError";
+  }
 }
 
 const PENDING_SUBMISSION_STORAGE_VERSION = 1;
@@ -213,13 +229,19 @@ function submissionMatchesScope(
       && submission.request_ids.section_id === scope.section_id;
 }
 
-function responseError(response: Response, fallback: string): Promise<Error> {
+function responseError(response: Response, fallback: string): Promise<TutorApiError> {
   return response.json()
     .then((value: unknown) => {
-      if (isRecord(value) && typeof value.error === "string") return new Error(value.error);
-      return new Error(fallback);
+      if (!isRecord(value)) return new TutorApiError(fallback, null, null);
+      return new TutorApiError(
+        typeof value.error === "string" ? value.error : fallback,
+        typeof value.code === "string" ? value.code : null,
+        typeof value.current_manifest_revision === "string"
+          ? value.current_manifest_revision
+          : null,
+      );
     })
-    .catch(() => new Error(fallback));
+    .catch(() => new TutorApiError(fallback, null, null));
 }
 
 function errorText(reason: unknown, fallback: string): string {
@@ -228,6 +250,10 @@ function errorText(reason: unknown, fallback: string): string {
 
 function isAbort(reason: unknown): boolean {
   return reason instanceof DOMException && reason.name === "AbortError";
+}
+
+function isPreDispatchStaleManifest(reason: unknown): reason is TutorApiError {
+  return reason instanceof TutorApiError && reason.code === "stale_manifest";
 }
 
 function hasSubmission(history: TutorSessionHistoryResponse, turnNonce: string): boolean {
@@ -284,6 +310,8 @@ export function useTutorSession(options: UseTutorSessionOptions) {
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settledSubmission, setSettledSubmission] = useState<SettledTutorSubmission | null>(null);
+  const [materialRefreshRequest, setMaterialRefreshRequest] = useState(0);
+  const [materialRefreshNotice, setMaterialRefreshNotice] = useState<ScopedNotice | null>(null);
 
   const inputRef = useRef({ scope: activeScope, scopeKey: activeScopeKey });
   inputRef.current = { scope: activeScope, scopeKey: activeScopeKey };
@@ -463,6 +491,16 @@ export function useTutorSession(options: UseTutorSessionOptions) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeScopeKey, loadVisibleHistory]);
 
+  useEffect(() => {
+    if (
+      activeScopeKey !== null
+      && materialRefreshNotice !== null
+      && materialRefreshNotice.scopeKey !== activeScopeKey
+    ) {
+      setMaterialRefreshNotice(null);
+    }
+  }, [activeScopeKey, materialRefreshNotice]);
+
   const reload = useCallback(async (): Promise<boolean> => {
     const current = inputRef.current;
     if (current.scope === null || current.scopeKey === null) return false;
@@ -543,6 +581,7 @@ export function useTutorSession(options: UseTutorSessionOptions) {
     setOptimistic(pending);
     setEphemeralStatus(null);
     setError(null);
+    setMaterialRefreshNotice(null);
     sendingRef.current = true;
     setSending(true);
 
@@ -592,6 +631,34 @@ export function useTutorSession(options: UseTutorSessionOptions) {
         },
       };
       ephemeralByScopeRef.current.set(submittedScopeKey, status);
+    }
+
+    const staleManifestRejectedBeforeDispatch = canonical !== null
+      && postError !== null
+      && isPreDispatchStaleManifest(postError)
+      && !hasSubmission(canonical, clientMessageId);
+    if (staleManifestRejectedBeforeDispatch) {
+      pendingSubmissionByScopeRef.current.delete(submittedScopeKey);
+      clearPersistedPendingSubmission(submittedScopeKey, clientMessageId);
+      optimisticByScopeRef.current.delete(submittedScopeKey);
+      ephemeralByScopeRef.current.delete(submittedScopeKey);
+      settledSubmissionByScopeRef.current.delete(submittedScopeKey);
+      if (inputRef.current.scopeKey === submittedScopeKey) {
+        setHistoryScopeKey(submittedScopeKey);
+        setHistory(canonical);
+        setOptimistic(null);
+        setEphemeralStatus(null);
+        setSettledSubmission(null);
+        setError(null);
+        setMaterialRefreshNotice({
+          scopeKey: submittedScopeKey,
+          text: "Course material changed on disk. The page context is refreshing; your message remains in the composer. Send it again when ready.",
+        });
+        setMaterialRefreshRequest((request) => request + 1);
+      }
+      sendingRef.current = false;
+      setSending(false);
+      return false;
     }
 
     if (inputRef.current.scopeKey === submittedScopeKey) {
@@ -794,7 +861,12 @@ export function useTutorSession(options: UseTutorSessionOptions) {
     sending,
     resolvingUncertain,
     stopping,
-    error,
+    error: error ?? (
+      materialRefreshNotice?.scopeKey === activeScopeKey
+        ? materialRefreshNotice.text
+        : null
+    ),
+    materialRefreshRequest,
     messages,
     history: visibleHistory,
     activeTurn,

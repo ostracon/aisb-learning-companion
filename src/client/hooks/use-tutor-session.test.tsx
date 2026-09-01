@@ -614,6 +614,42 @@ describe("useTutorSession turn reconciliation", () => {
     expect(result.current.messages.some((item) => item.role === "status")).toBe(false);
   });
 
+  it("refreshes stale course context without creating an uncertain-delivery message", async () => {
+    let getCount = 0;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return response({
+          error: "The curriculum material manifest changed; refresh it before reading",
+          code: "stale_manifest",
+          current_manifest_revision: `sha256:${"c".repeat(64)}`,
+        }, 409);
+      }
+      getCount += 1;
+      return response(history("scope-a", []));
+    });
+    const { result } = renderHook(() => useTutorSession({
+      enabled: true,
+      scope: A_SCOPE,
+      fetch: fetchMock as typeof fetch,
+      createId: () => "client-stale-manifest",
+    }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.send(submission("Keep this exact draft"));
+    });
+
+    expect(getCount).toBe(2);
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.unresolvedMessage).toBeNull();
+    expect(result.current.materialRefreshRequest).toBe(1);
+    expect(result.current.error).toMatch(/material changed on disk/i);
+    expect(result.current.error).toMatch(/message remains in the composer/i);
+    expect(
+      window.localStorage.getItem(tutorPendingSubmissionStorageKey("event:event-a")),
+    ).toBeNull();
+  });
+
   it("never posts again while both POST and canonical history are uncertain", async () => {
     let getCount = 0;
     const postedIds: string[] = [];
