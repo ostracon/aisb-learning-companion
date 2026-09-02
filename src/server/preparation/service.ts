@@ -30,7 +30,7 @@ const DEFAULT_LIMITS: PreparationLimitsView = Object.freeze({
   maxInventorySources: 256,
   maxSources: 256,
   maxSourceBytes: 16 * 1024 * 1024,
-  maxTotalBytes: 128 * 1024 * 1024,
+  maxTotalBytes: 512 * 1024 * 1024,
   maxRedirects: 3,
   requestTimeoutMs: 15_000,
 });
@@ -161,7 +161,7 @@ const limitsSchema = z.object({
   maxInventorySources: z.number().int().positive().max(256),
   maxSources: z.number().int().positive().max(256),
   maxSourceBytes: z.number().int().positive().max(32 * 1024 * 1024),
-  maxTotalBytes: z.number().int().positive().max(128 * 1024 * 1024),
+  maxTotalBytes: z.number().int().positive().max(1024 * 1024 * 1024),
   maxRedirects: z.number().int().nonnegative().max(10),
   requestTimeoutMs: z.number().int().positive().max(120_000),
 }).strict().refine(

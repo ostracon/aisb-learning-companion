@@ -54,7 +54,7 @@ The current defaults are:
 | Sources contacted | Up to all 256 recorded references |
 | Concurrent requests | 6 |
 | Source size | 16 MiB |
-| Total stored bytes | 128 MiB per run |
+| Total stored bytes | 512 MiB per run |
 | Redirects | 3 per source |
 | Request time | 15 seconds per request |
 | PDF extraction time | 45 seconds per PDF |
