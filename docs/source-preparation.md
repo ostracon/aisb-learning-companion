@@ -32,9 +32,10 @@ public HTTPS links. It does not use the network and does not download anything.
 
 Learner-visible arXiv abstract and PDF links are both normalized to the paper's
 full PDF endpoint. Equivalent arXiv link spellings are recorded once, with all
-of their curriculum origins retained. Links that exist only inside protected
-answers or solutions are not part of the learner-visible manifest and remain
-excluded.
+of their curriculum origins retained. If an arXiv paper is cited only inside a
+protected answer or solution, the paper URL is retained with a neutral label so
+the external paper can still provide context. The protected wording itself is
+not included.
 
 Use it to check which sources the current curriculum refers to after pulling a
 new AISB revision.

@@ -195,8 +195,9 @@ cache run covers the complete bounded inventory with six workers rather than an
 arbitrary small source count.
 
 Learner-visible arXiv landing-page links are automatically resolved to the full
-paper PDF and deduplicated with equivalent direct-PDF links. Protected answer
-and solution folds remain outside the preparation inventory.
+paper PDF and deduplicated with equivalent direct-PDF links. ArXiv citations
+inside protected answer and solution folds are also prepared with neutral
+labels, while the protected wording remains unavailable.
 
 Preparation is never automatic. See [Preparing external sources](./docs/source-preparation.md)
 for the exact workflow, current limits, result statuses, storage layout, and

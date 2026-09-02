@@ -1428,6 +1428,44 @@ function markdownLinks(markdown: string): ParsedMarkdownLink[] {
   return links;
 }
 
+function protectedArxivReferenceLinks(
+  authoredMarkdown: string,
+  learnerVisibleLinks: readonly ParsedMarkdownLink[],
+): ParsedMarkdownLink[] {
+  const visibleIdentifiers = new Set(
+    learnerVisibleLinks
+      .map(({ target }) => arxivIdentifierFromReference(target))
+      .filter((identifier): identifier is string => identifier !== null),
+  );
+  const protectedIdentifiers = new Set<string>();
+  const links: ParsedMarkdownLink[] = [];
+
+  for (const match of authoredMarkdown.matchAll(
+    /https:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\/((?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z]{2})?\/\d{7})(?:v\d+)?)(?:\.pdf)?/giu,
+  )) {
+    const identifier = match[1];
+    if (
+      identifier === undefined
+      || visibleIdentifiers.has(identifier.toLowerCase())
+      || protectedIdentifiers.has(identifier.toLowerCase())
+    ) continue;
+
+    protectedIdentifiers.add(identifier.toLowerCase());
+    links.push({
+      label: "Referenced arXiv paper",
+      target: `https://arxiv.org/pdf/${identifier}`,
+    });
+  }
+  return links;
+}
+
+function arxivIdentifierFromReference(value: string): string | null {
+  const match = value.match(
+    /^https:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\/((?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z]{2})?\/\d{7})(?:v\d+)?)(?:\.pdf)?(?:[?#].*)?$/iu,
+  );
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
 function markdownImages(markdown: string): ParsedMarkdownImage[] {
   const images: ParsedMarkdownImage[] = [];
   const root = parseMarkdown(markdown);
@@ -1904,7 +1942,13 @@ export class CurriculumMaterialService {
       documentsByPath.set(relativePath, internal);
       documentsById.set(id, internal);
 
-      const discoveredLinks = markdownLinks(modelSafeDocumentMarkdown);
+      const learnerVisibleLinks = markdownLinks(modelSafeDocumentMarkdown);
+      const discoveredLinks = classification.kind === "readme"
+        ? learnerVisibleLinks
+        : [
+            ...learnerVisibleLinks,
+            ...protectedArxivReferenceLinks(read.markdown, learnerVisibleLinks),
+          ];
       const perDocumentLinks = discoveredLinks.slice(0, this.limits.maxLinksPerDocument);
       if (perDocumentLinks.length < discoveredLinks.length) {
         document.linksTruncated = true;

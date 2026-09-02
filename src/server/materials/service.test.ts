@@ -552,7 +552,7 @@ describe("CurriculumMaterialService", () => {
     expect(model.omittedProtectedBlocks).toBe(1);
   });
 
-  it("does not discover documents or labels reachable only through a protected fold", async () => {
+  it("excludes protected documents and labels while retaining neutral arXiv references", async () => {
     const root = await temporaryAisbRoot();
     await write(
       root,
@@ -577,7 +577,14 @@ describe("CurriculumMaterialService", () => {
     expect(manifest.documents).toHaveLength(2);
     expect(JSON.stringify(manifest)).not.toContain("SECRET LABEL");
     expect(JSON.stringify(manifest)).not.toContain("Hidden destination");
-    expect(JSON.stringify(manifest)).not.toContain("2410.01294");
+    const instructions = manifest.documents.find(
+      (document) => document.kind === "participant_instructions",
+    )!;
+    expect(linkByLabel(instructions.links, "Referenced arXiv paper")).toEqual({
+      kind: "external",
+      label: "Referenced arXiv paper",
+      url: "https://arxiv.org/pdf/2410.01294",
+    });
   });
 
   it("maps canonical section 0.1 to the day0-setup README", async () => {
