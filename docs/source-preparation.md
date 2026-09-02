@@ -108,18 +108,20 @@ becomes the active inventory while verified objects are reused by hash.
 Prepared material is untrusted reference content, never an instruction source.
 The original HTML or PDF bytes are not placed directly in a model prompt.
 
-- A lesson tutor receives only small, verified text excerpts whose recorded
-  curriculum origins overlap the currently selected section.
+- A lesson tutor receives small, verified text excerpts for quick orientation.
+  It can also search the complete prepared projections linked to the current
+  section and read relevant parts in bounded chunks. PDF page headings and
+  source/projection hashes are retained in tool results.
 - The overall **Learning manager** receives a bounded snapshot. It does not
   have a general source-reading or web-browsing tool.
 - **Review day** receives a compact inventory for that day and can search or
   read relevant prepared text in bounded chunks through day-scoped tools. This
   is the preferred flow for a source-grounded whole-day review.
 
-Day-review tools accept opaque application IDs, not paths or URLs. The server
-rebuilds and rechecks the selected day's resource set for every call. Protected
-folds, solutions, participant answer files, and sources belonging only to a
-different day remain unavailable.
+Lesson-tutor and day-review tools accept opaque application IDs, not paths or
+URLs. The server rebuilds and rechecks the selected section or day's resource
+set for every call. Protected folds, solutions, participant answer files, and
+sources outside that scope remain unavailable.
 
 ## Storage and privacy
 
@@ -154,8 +156,9 @@ Expand the failed rows. A partial run does not invalidate successful rows.
 Retry only if the reported cause is temporary or you have fixed a local
 requirement such as Poppler.
 
-### A review says a reference is unavailable
+### An assistant says a reference is unavailable
 
 Confirm that the latest run shows a complete text projection and that the
-reference is linked from a section belonging to the reviewed day. Then start a
-new **Review day** turn; opening review never prepares missing sources itself.
+reference is linked from the current section or a section belonging to the
+reviewed day. Then start a new tutor or **Review day** turn; opening either one
+never prepares missing sources itself.

@@ -43,15 +43,22 @@ import type { CurriculumMaterialService } from "../materials/service.js";
 import type { VisualAidService } from "../images/service.js";
 import {
   createLearningVisualToolHandler,
+  isLearningVisualToolCall,
   learningVisualToolSpec,
-  VISUAL_TOOLSET_VERSION,
 } from "../images/tool.js";
+import type { DayPreparedReferenceSource } from "../manager/prepared-context-source.js";
 import type { MarkdownNoteStore } from "../notes/store.js";
 import type { ScheduleStore } from "../schedule/store.js";
 import type {
   ScopedPreparedReference,
   ScopedPreparedReferenceContextSource,
 } from "../preparation/context-source.js";
+import { PreparedReferenceRetrievalService } from "../preparation/retrieval-service.js";
+import {
+  createPreparedReferenceToolHandler,
+  isPreparedReferenceToolCall,
+  preparedReferenceToolSpecs,
+} from "../preparation/tool.js";
 import {
   ContinuitySummaryStore,
   type ApprovedContinuitySummary,
@@ -76,6 +83,10 @@ import { TutorThreadBindingStore } from "./thread-binding-store.js";
 
 const TUTOR_MODEL = "gpt-5.6-sol";
 const TUTOR_BINDING_CAS_ATTEMPTS = 4;
+export const TUTOR_TOOLSET_VERSION = "tutor-tools-v2";
+
+type TutorPreparedReferenceSource = ScopedPreparedReferenceContextSource
+  & Partial<DayPreparedReferenceSource>;
 
 /** Section scope comes only from the fresh canonical page snapshot. */
 export function preparedReferenceSectionIds(
@@ -743,7 +754,7 @@ export class DurableTutorThreadResolver {
     if (existing !== null) {
       // Dynamic tools are fixed when a Codex thread starts. Preserve the local
       // chat identity but replace one legacy rollout exactly once.
-      if (existing.toolsetVersion !== VISUAL_TOOLSET_VERSION) {
+      if (existing.toolsetVersion !== TUTOR_TOOLSET_VERSION) {
         return this.#startVerified(gateway, existing.chatId);
       }
       if (gateway.isInstructionVerified(existing.threadId)) {
@@ -783,7 +794,7 @@ export class DurableTutorThreadResolver {
       threadId,
       model: TUTOR_MODEL,
       permissionProfile: TUTOR_PERMISSION_PROFILE,
-      toolsetVersion: VISUAL_TOOLSET_VERSION,
+      toolsetVersion: TUTOR_TOOLSET_VERSION,
     });
   }
 
@@ -802,11 +813,15 @@ export class TutorService {
   readonly #threadResolver: DurableTutorThreadResolver;
   readonly #sessionLogStore: TutorSessionLogStorePort;
   readonly #continuityStore: TutorContinuityStorePort;
-  readonly #preparedReferenceSource: ScopedPreparedReferenceContextSource | null;
+  readonly #preparedReferenceSource: TutorPreparedReferenceSource | null;
   readonly #recoveryGateway: TutorTurnRecoveryGatewayPort | null;
   readonly #threadResolutionByScope = new Map<string, Promise<TutorThreadBinding>>();
   readonly #turnAdmission: TutorTurnAdmission;
   readonly #visualAidService: Pick<VisualAidService, "preview"> | null;
+  readonly #preparedReferenceScopesByThread = new Map<
+    string,
+    Readonly<{ readonly token: symbol; readonly sectionIds: readonly string[] }>
+  >();
   readonly #turnResolutionAdmission = new TutorTurnResolutionAdmission();
   readonly #activeTurns = new TutorActiveTurnRegistry();
   #stack: CodexStack | null = null;
@@ -825,7 +840,7 @@ export class TutorService {
     threadBindingStore: TutorThreadBindingStorePort = new TutorThreadBindingStore(config.stateRoot),
     sessionLogStore: TutorSessionLogStorePort = new TutorSessionLogStore(config.stateRoot),
     continuityStore: TutorContinuityStorePort = new ContinuitySummaryStore(config.stateRoot),
-    preparedReferenceSource: ScopedPreparedReferenceContextSource | null = null,
+    preparedReferenceSource: TutorPreparedReferenceSource | null = null,
     dependencies: Readonly<TutorServiceDependencies> = {},
   ) {
     this.#threadResolver = new DurableTutorThreadResolver(threadBindingStore);
@@ -1141,6 +1156,7 @@ export class TutorService {
       throw error;
     }
     let binding: TutorRouteBinding | null = null;
+    let preparedReferenceScopeToken: symbol | null = null;
     try {
       binding = await this.#runtime.bindTutorRoute(
         input.contextMode === "today"
@@ -1186,10 +1202,11 @@ export class TutorService {
         eligibleContinuity,
         input.continuitySummaries,
       );
+      const preparedSectionIds = preparedReferenceSectionIds(snapshot);
       const preparedReferences = this.#preparedReferenceSource === null
         ? []
         : await this.#preparedReferenceSource.readForSections(
-            preparedReferenceSectionIds(snapshot),
+            preparedSectionIds,
           );
       const frozen = await this.#runtime.contextService.freezeTurnContext(
         snapshot,
@@ -1265,6 +1282,13 @@ export class TutorService {
       }
       let turn;
       try {
+        if (preparedSectionIds.length > 0) {
+          preparedReferenceScopeToken = Symbol(turnNonce);
+          this.#preparedReferenceScopesByThread.set(threadBinding.threadId, Object.freeze({
+            token: preparedReferenceScopeToken,
+            sectionIds: preparedSectionIds,
+          }));
+        }
         turn = await gateway.runTurn({
           threadId: snapshot.scope.threadId,
           clientUserMessageId: turnNonce,
@@ -1353,6 +1377,12 @@ export class TutorService {
         disclosure,
       });
     } finally {
+      if (preparedReferenceScopeToken !== null) {
+        const activeScope = this.#preparedReferenceScopesByThread.get(threadBinding.threadId);
+        if (activeScope?.token === preparedReferenceScopeToken) {
+          this.#preparedReferenceScopesByThread.delete(threadBinding.threadId);
+        }
+      }
       activeTurn.release();
       releaseTurn();
       if (binding !== null) this.#runtime.revokeRouteBinding(binding.scopeBindingId);
@@ -1500,13 +1530,40 @@ export class TutorService {
         }),
         readFile(join(this.config.companionRoot, "config", "developer-prompt.md"), "utf8"),
       ]);
+      const preparedReferenceRetrieval = supportsPreparedReferenceRetrieval(
+        this.#preparedReferenceSource,
+      )
+        ? new PreparedReferenceRetrievalService(this.#preparedReferenceSource)
+        : null;
+      const visualHandler = this.#visualAidService === null
+        ? null
+        : createLearningVisualToolHandler(this.#visualAidService);
+      const preparedReferenceHandler = preparedReferenceRetrieval === null
+        ? null
+        : createPreparedReferenceToolHandler(
+            preparedReferenceRetrieval,
+            (threadId) => this.#preparedReferenceScopesByThread.get(threadId)?.sectionIds ?? null,
+          );
+      const dynamicTools = [
+        ...(this.#visualAidService === null ? [] : [learningVisualToolSpec]),
+        ...(preparedReferenceRetrieval === null ? [] : preparedReferenceToolSpecs),
+      ];
+      const dynamicToolHandler = dynamicTools.length === 0
+        ? null
+        : async (params: unknown) => {
+            if (visualHandler !== null && isLearningVisualToolCall(params)) {
+              return visualHandler(params);
+            }
+            if (preparedReferenceHandler !== null && isPreparedReferenceToolCall(params)) {
+              return preparedReferenceHandler(params);
+            }
+            throw new Error("Tutor dynamic tool is not registered");
+          };
       const client = await AppServerClient.connect({
         executable: this.config.codexExecutable,
         cwd: this.config.aisbRoot,
         env: sanitizedChildEnvironment(process.env, { CODEX_HOME: codexHome.path }),
-        ...(this.#visualAidService === null
-          ? {}
-          : { dynamicToolHandler: createLearningVisualToolHandler(this.#visualAidService) }),
+        ...(dynamicToolHandler === null ? {} : { dynamicToolHandler }),
       });
       const gateway = new TutorGateway(client, {
         aisbRoot: this.config.aisbRoot,
@@ -1514,7 +1571,7 @@ export class TutorService {
         permissionsProfile: TUTOR_PERMISSION_PROFILE,
         defaultModel: TUTOR_MODEL,
         defaultEffort: "medium",
-        ...(this.#visualAidService === null ? {} : { dynamicTools: [learningVisualToolSpec] }),
+        ...(dynamicTools.length === 0 ? {} : { dynamicTools }),
       });
       const stack = { client, gateway };
       client.onFault((fault) => {
@@ -1540,4 +1597,12 @@ export class TutorService {
       );
     }
   }
+}
+
+function supportsPreparedReferenceRetrieval(
+  source: TutorPreparedReferenceSource | null,
+): source is ScopedPreparedReferenceContextSource & DayPreparedReferenceSource {
+  return source !== null
+    && typeof source.listForSections === "function"
+    && typeof source.readProjectionForSections === "function";
 }

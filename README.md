@@ -198,6 +198,13 @@ Preparation is never automatic. See [Preparing external sources](./docs/source-p
 for the exact workflow, current limits, result statuses, storage layout, and
 which assistants may retrieve prepared text.
 
+The lesson tutor receives a short opening excerpt for quick orientation. When
+you ask it to check a paper, implementation, experiment, or claim, it can also
+search the complete cached text for references linked to the current section
+and read the relevant parts in bounded chunks. The tool returns source URLs,
+page counts for PDFs, and content hashes; it cannot open arbitrary paths or
+unprepared web URLs.
+
 ## Whole-day review
 
 Open a day in **Today**, then select **Review day**. Each programme

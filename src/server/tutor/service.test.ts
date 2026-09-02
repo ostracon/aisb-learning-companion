@@ -750,7 +750,7 @@ function persistedBinding(threadId: string, chatId = "chat:durable") {
     threadId,
     model: "gpt-5.6-sol",
     permissionProfile: "aisb-tutor",
-    toolsetVersion: "learning-visual-v1",
+    toolsetVersion: "tutor-tools-v2",
   };
 }
 
@@ -795,7 +795,7 @@ describe("DurableTutorThreadResolver", () => {
         threadId: "thread-stale",
         model: "gpt-5.6-sol",
         permissionProfile: "aisb-tutor",
-        toolsetVersion: "learning-visual-v1",
+        toolsetVersion: "tutor-tools-v2",
       },
     });
     const gateway = new FakeGateway(["thread-replacement"], new Set(["thread-stale"]));
@@ -855,7 +855,7 @@ describe("DurableTutorThreadResolver", () => {
     expect(gateway.resumes).toEqual([]);
     expect((await store.readScope("day:day1")).binding).toMatchObject({
       threadId: "thread-with-tools",
-      toolsetVersion: "learning-visual-v1",
+      toolsetVersion: "tutor-tools-v2",
     });
   });
 

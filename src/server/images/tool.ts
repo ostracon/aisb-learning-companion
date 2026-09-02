@@ -48,6 +48,13 @@ const callSchema = z.object({
   arguments: visualAidBriefSchema,
 }).strict();
 
+export function isLearningVisualToolCall(params: unknown): boolean {
+  return typeof params === "object"
+    && params !== null
+    && "tool" in params
+    && String((params as { readonly tool?: unknown }).tool) === PREPARE_LEARNING_VISUAL_TOOL;
+}
+
 export function createLearningVisualToolHandler(
   service: Pick<VisualAidService, "preview">,
 ): (params: unknown) => Promise<DynamicToolCallResponse> {
