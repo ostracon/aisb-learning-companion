@@ -1362,6 +1362,11 @@ body {
   column-gap: 0;
 }
 
+.study-split.notes-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 0;
+}
+
 .study-material-pane {
   min-width: 0;
   padding-top: 0.9rem;
@@ -1412,6 +1417,10 @@ body {
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+}
+
+.study-notes[hidden] {
+  display: none;
 }
 
 .study-notes .note-editor-frame {

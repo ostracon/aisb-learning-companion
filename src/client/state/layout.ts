@@ -1,11 +1,12 @@
 export const layoutPreferenceKey = "aisb-companion:layout:v1";
 export const historyLayoutKey = "aisbCompanionLayout";
 
-export type WorkspacePanel = "navigation" | "schedule" | "tutor";
+export type WorkspacePanel = "navigation" | "schedule" | "notes" | "tutor";
 
 export interface PanelVisibility {
   navigation: boolean;
   schedule: boolean;
+  notes: boolean;
   tutor: boolean;
 }
 
@@ -18,19 +19,25 @@ export interface WorkspaceLayout {
 
 export type LayoutAction =
   | { type: "toggle-panel"; panel: WorkspacePanel }
+  | { type: "toggle-study-notes" }
   | { type: "focus-notes" }
   | { type: "exit-focus" }
   | { type: "restore"; layout: WorkspaceLayout };
 
 export const defaultWorkspaceLayout: WorkspaceLayout = {
   version: 1,
-  panels: { navigation: true, schedule: true, tutor: true },
+  panels: { navigation: true, schedule: true, notes: true, tutor: true },
   focusNotes: false,
   preFocus: null,
 };
 
 function clonePanels(value: PanelVisibility): PanelVisibility {
-  return { navigation: value.navigation, schedule: value.schedule, tutor: value.tutor };
+  return {
+    navigation: value.navigation,
+    schedule: value.schedule,
+    notes: value.notes,
+    tutor: value.tutor,
+  };
 }
 
 export function workspaceLayoutReducer(state: WorkspaceLayout, action: LayoutAction): WorkspaceLayout {
@@ -39,7 +46,7 @@ export function workspaceLayoutReducer(state: WorkspaceLayout, action: LayoutAct
       if (state.focusNotes) return state;
       return {
         version: 1,
-        panels: { navigation: false, schedule: false, tutor: false },
+        panels: { navigation: false, schedule: false, notes: true, tutor: false },
         focusNotes: true,
         preFocus: clonePanels(state.panels),
       };
@@ -50,6 +57,18 @@ export function workspaceLayoutReducer(state: WorkspaceLayout, action: LayoutAct
         panels: clonePanels(state.preFocus ?? defaultWorkspaceLayout.panels),
         focusNotes: false,
         preFocus: null,
+      };
+    case "toggle-study-notes":
+      if (state.focusNotes) return state;
+      return {
+        ...state,
+        panels: {
+          ...state.panels,
+          // A material-only view must contain material. Showing Notes again
+          // leaves the learner's previous material choice untouched.
+          schedule: state.panels.notes ? true : state.panels.schedule,
+          notes: !state.panels.notes,
+        },
       };
     case "toggle-panel": {
       if (state.focusNotes) {
@@ -83,6 +102,10 @@ export function normalizeWorkspaceLayout(value: unknown): WorkspaceLayout {
   const normalizedPanels: PanelVisibility = {
     navigation: panels.navigation,
     schedule: panels.schedule,
+    // Layout v1 originally had no Notes visibility preference. Treat those
+    // saved layouts as visible so an upgrade never makes a learner's editor
+    // appear to vanish.
+    notes: typeof panels.notes === "boolean" ? panels.notes : true,
     tutor: panels.tutor,
   };
   if (!candidate.focusNotes) {
@@ -99,11 +122,12 @@ export function normalizeWorkspaceLayout(value: unknown): WorkspaceLayout {
   }
   return {
     version: 1,
-    panels: { navigation: false, schedule: false, tutor: false },
+    panels: { navigation: false, schedule: false, notes: true, tutor: false },
     focusNotes: true,
     preFocus: {
       navigation: preFocus.navigation,
       schedule: preFocus.schedule,
+      notes: typeof preFocus.notes === "boolean" ? preFocus.notes : true,
       tutor: preFocus.tutor,
     },
   };

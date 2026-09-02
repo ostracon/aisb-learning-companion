@@ -872,6 +872,8 @@ interface NotesWorkspaceProps {
   readonly onOpenNote: (noteId: string, routePath: string) => void;
   readonly tutorContextStatus: string;
   readonly className?: string;
+  readonly id?: string;
+  readonly hidden?: boolean;
 }
 
 function NotesWorkspace({
@@ -884,9 +886,16 @@ function NotesWorkspace({
   onOpenNote,
   tutorContextStatus,
   className = "",
+  id,
+  hidden = false,
 }: NotesWorkspaceProps) {
   return (
-    <section className={`notes-section ${className}`.trim()} aria-labelledby="notes-heading">
+    <section
+      className={`notes-section ${className}`.trim()}
+      id={id}
+      aria-labelledby="notes-heading"
+      hidden={hidden}
+    >
       <div className="section-heading-row note-heading-row">
         <h2 id="notes-heading">Notes</h2>
         <NoteSaveControls
@@ -977,6 +986,7 @@ function WorkspacePage({
   const layoutIdentity = [
     layout.panels.navigation,
     layout.panels.schedule,
+    layout.panels.notes,
     layout.panels.tutor,
     layout.focusNotes,
   ].join(":");
@@ -1051,6 +1061,8 @@ function WorkspacePage({
   const [showMealBreaks, setShowMealBreaks] = useState(false);
   const hasAutoOriented = useRef(false);
   const isStudy = viewMode === "study";
+  const studyMaterialVisible = layout.panels.schedule && !layout.focusNotes;
+  const studyNotesVisible = layout.panels.notes || layout.focusNotes;
 
   useEffect(() => {
     if (anchor) return;
@@ -1464,6 +1476,11 @@ function WorkspacePage({
     });
   };
 
+  const toggleStudyNotes = () => {
+    if (layout.focusNotes) return;
+    dispatch({ type: "toggle-study-notes" });
+  };
+
   const toggleContinuitySummary = (summaryId: string, selected: boolean) => {
     if (sending) return;
     setSelectedContinuityIds((current) => {
@@ -1850,6 +1867,17 @@ function WorkspacePage({
               <Link className={!isStudy ? "active" : ""} to={`/day/${todayDayTarget}`} aria-current={!isStudy ? "page" : undefined}>Today</Link>
               <Link className={isStudy ? "active" : ""} to={`/study/${studyDayTarget}`} aria-current={isStudy ? "page" : undefined}>Study</Link>
             </nav>
+            {isStudy && !layout.focusNotes ? (
+              <button
+                className="text-button notes-visibility-action"
+                type="button"
+                aria-controls="study-notes-pane"
+                aria-expanded={layout.panels.notes}
+                onClick={toggleStudyNotes}
+              >
+                {layout.panels.notes ? "Hide notes" : "Show notes"}
+              </button>
+            ) : null}
             <button
               className="text-button focus-action"
               type="button"
@@ -2081,13 +2109,17 @@ function WorkspacePage({
 
             {isStudy ? (
               <div
-                className={`study-split ${layout.panels.schedule && !layout.focusNotes ? "" : "material-collapsed"}`.trim()}
+                className={[
+                  "study-split",
+                  studyMaterialVisible ? "" : "material-collapsed",
+                  studyNotesVisible ? "" : "notes-collapsed",
+                ].filter(Boolean).join(" ")}
                 ref={studySplitRef}
                 style={{
                   "--study-material-share": `${paneSizes.sizes.studyMaterialFraction * 100}%`,
                 } as CSSProperties}
               >
-                {layout.panels.schedule && !layout.focusNotes ? (
+                {studyMaterialVisible ? (
                   <div className="study-material-pane">
                     <div className="study-material-toolbar">
                       <span>Material</span>
@@ -2120,7 +2152,7 @@ function WorkspacePage({
                     Show study material
                   </button>
                 )}
-                {layout.panels.schedule && !layout.focusNotes ? (
+                {studyMaterialVisible && studyNotesVisible ? (
                   <PaneResizeHandle
                     className="study-pane-resizer"
                     label="Resize course material and notes"
@@ -2136,6 +2168,8 @@ function WorkspacePage({
                 ) : null}
                 <NotesWorkspace
                   className="study-notes"
+                  id="study-notes-pane"
+                  hidden={!studyNotesVisible}
                   dayId={selectedDayId}
                   scopeMode="study"
                   noteId={noteId}
