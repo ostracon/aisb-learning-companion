@@ -10,6 +10,7 @@ import {
   extractReflectionBody,
   NoteSaveControls,
   shouldRestoreUncertainTutorText,
+  studyDayTargetFor,
   studyNavigationDays,
   tutorComposerStorageKey,
   TutorContinuityControls,
@@ -18,6 +19,30 @@ import {
 } from "./App.js";
 
 describe("Study day navigation", () => {
+  it("keeps a schedule-only day selected when switching to Study", () => {
+    expect(studyDayTargetFor("day4", false, {
+      day1: "day1",
+      day2: "day2",
+      day3: "day3",
+      day4: null,
+      day5: "day5",
+      day6: "day6",
+      day7: "day7",
+    })).toBe("day4");
+  });
+
+  it("uses an explicit programme-to-repository mapping when one exists", () => {
+    expect(studyDayTargetFor("day5", false, {
+      day1: "day1",
+      day2: "day2",
+      day3: "day3",
+      day4: null,
+      day5: "day4",
+      day6: "day6",
+      day7: "day7",
+    })).toBe("day4");
+  });
+
   it("merges repository and schedule-only days into one chronological list", () => {
     const days = [
       { dayId: "day5" as const, date: "2026-09-03", curriculumKind: "content" as const, title: "Day 5" },

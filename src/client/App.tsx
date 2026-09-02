@@ -170,6 +170,15 @@ export function studyNavigationDays(
   return navigationDays;
 }
 
+export function studyDayTargetFor(
+  selectedDayId: LearningDayId,
+  isStudy: boolean,
+  programmeToRepositoryDay: BootstrapResponse["programmeToRepositoryDay"],
+): LearningDayId {
+  if (isStudy || selectedDayId === "day0") return selectedDayId;
+  return programmeToRepositoryDay[selectedDayId] ?? selectedDayId;
+}
+
 function writeAnchorToHistory(anchor: NowAnchor): void {
   window.history.replaceState(
     {
@@ -1665,11 +1674,11 @@ function WorkspacePage({
     linkedSectionIds: selectedEventBinding?.sectionIds ?? [],
     studySectionId: selectedSection?.sectionId ?? null,
   });
-  const studyDayTarget: LearningDayId = isStudy
-    ? selectedDayId
-    : selectedDayId === "day0"
-      ? "day0"
-      : data.programmeToRepositoryDay[selectedDayId] ?? firstRepositoryDayId;
+  const studyDayTarget = studyDayTargetFor(
+    selectedDayId,
+    isStudy,
+    data.programmeToRepositoryDay,
+  );
   const todayDayTarget: LearningDayId = !isStudy
     ? selectedDayId
     : (Object.entries(data.programmeToRepositoryDay).find(([, repoDay]) => repoDay === selectedDayId)?.[0] as LearningDayId | undefined)
