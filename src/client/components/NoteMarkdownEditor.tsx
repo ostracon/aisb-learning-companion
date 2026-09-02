@@ -17,7 +17,7 @@ import CodeMirror, {
   type StateCommand,
 } from "@uiw/react-codemirror";
 import { tags } from "@lezer/highlight";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { SafeMarkdown } from "./SafeMarkdown.js";
 
@@ -171,7 +171,7 @@ const editorSetup = {
   tabSize: 2,
 } as const;
 
-export function NoteMarkdownEditor({
+export const NoteMarkdownEditor = memo(function NoteMarkdownEditor({
   value,
   readOnly,
   describedBy,
@@ -181,6 +181,10 @@ export function NoteMarkdownEditor({
   const editorRef = useRef<ReactCodeMirrorRef>(null);
   const initialValueRef = useRef(value);
   const latestValueRef = useRef(value);
+  const editorValueRef = useRef(value);
+  const [previewValue, setPreviewValue] = useState(value);
+  const viewRef = useRef(view);
+  viewRef.current = view;
   latestValueRef.current = value;
   const editorDescription = describedBy
     ? `note-editor-help ${describedBy}`
@@ -222,14 +226,22 @@ export function NoteMarkdownEditor({
     [synchronizeExternalValue],
   );
 
+  const handleChange = useCallback((nextValue: string) => {
+    editorValueRef.current = nextValue;
+    onChange(nextValue);
+  }, [onChange]);
+
   useLayoutEffect(() => {
     const editorView = editorRef.current?.view;
     if (editorView) {
       synchronizeExternalValue(editorView, value);
     }
+    editorValueRef.current = value;
+    if (viewRef.current === "preview") setPreviewValue(value);
   }, [synchronizeExternalValue, value]);
 
   const chooseView = (nextView: NoteView) => {
+    if (nextView === "preview") setPreviewValue(editorValueRef.current);
     setView(nextView);
     if (nextView === "write") {
       window.requestAnimationFrame(() => {
@@ -278,7 +290,7 @@ export function NoteMarkdownEditor({
         editable={!readOnly}
         readOnly={readOnly}
         onCreateEditor={handleCreateEditor}
-        onChange={onChange}
+        onChange={handleChange}
         hidden={view !== "write"}
       />
       <article
@@ -287,9 +299,9 @@ export function NoteMarkdownEditor({
         tabIndex={0}
         hidden={view !== "preview"}
       >
-        {view !== "preview" ? null : value.trim() ? (
+        {view !== "preview" ? null : previewValue.trim() ? (
           <SafeMarkdown
-            markdown={value}
+            markdown={previewValue}
             headingIdPrefix="note-preview-heading-"
             inertLinkTitle="Links stay inactive in note preview"
             omittedImageLabel="Image omitted from note preview"
@@ -301,4 +313,4 @@ export function NoteMarkdownEditor({
       </article>
     </div>
   );
-}
+});

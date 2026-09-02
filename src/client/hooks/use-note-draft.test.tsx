@@ -218,10 +218,11 @@ describe("useNoteDraft recovery lineage", () => {
 
     act(() => result.current.updateValue("local unsaved text with another thought"));
     expect(result.current.status).toBe("conflict");
-    await waitFor(() => expect(result.current.status).toBe("conflict"));
-    await expect(readDraft("note-lineage")).resolves.toMatchObject({
-      content: "local unsaved text with another thought",
-      baseContentHash: HASH_A,
+    await waitFor(async () => {
+      await expect(readDraft("note-lineage")).resolves.toMatchObject({
+        content: "local unsaved text with another thought",
+        baseContentHash: HASH_A,
+      });
     });
   });
 
@@ -493,6 +494,15 @@ describe("useNoteDraft save sequencing", () => {
   it("coalesces rapid edits into one three-second trailing Markdown save", async () => {
     const noteId = "debounced-markdown-save";
     const putBodies: Record<string, unknown>[] = [];
+    const browserWrites: string[] = [];
+    const draftStorage = {
+      claimWriterEpoch: claimDraftWriterEpoch,
+      read: readDraft,
+      write: async (draft: BrowserNoteDraft) => {
+        browserWrites.push(draft.content);
+        await writeDraft(draft);
+      },
+    };
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") {
         return jsonResponse(notePayload(noteId, "Disk", 1, HASH_A));
@@ -505,8 +515,11 @@ describe("useNoteDraft save sequencing", () => {
       fetch: fetchMock as typeof fetch,
       now: NOW,
       coordinator: immediateCoordinator,
+      browserDraftSaveDelayMs: 25,
+      draftStorage,
     }));
     await waitFor(() => expect(result.current.status).toBe("saved-disk"));
+    expect(browserWrites).toEqual(["Disk"]);
 
     act(() => {
       result.current.updateValue("First edit");
@@ -514,7 +527,14 @@ describe("useNoteDraft save sequencing", () => {
       result.current.updateValue("Third edit");
     });
 
+    // CodeMirror owns the hot input value. The surrounding workspace only
+    // receives the coalesced value once browser recovery has persisted it.
+    expect(result.current.value).toBe("Disk");
+    expect(result.current.getValue()).toBe("Third edit");
+    expect(browserWrites).toEqual(["Disk"]);
     await waitFor(() => expect(result.current.status).toBe("saved-locally"));
+    expect(result.current.value).toBe("Third edit");
+    expect(browserWrites).toEqual(["Disk", "Third edit"]);
     await expect(readDraft(noteId)).resolves.toMatchObject({ content: "Third edit" });
     expect(putBodies).toEqual([]);
     expect(timeoutSpy.mock.calls.filter(([, delay]) => delay === 3_000)).toHaveLength(1);

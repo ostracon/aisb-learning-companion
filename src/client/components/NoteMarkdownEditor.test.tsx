@@ -44,6 +44,34 @@ describe("NoteMarkdownEditor", () => {
     expect(screen.getByText(/Esc, then Tab exits/)).toBeTruthy();
   });
 
+  it("previews editor-owned typing before the parent publishes its debounced value", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <NoteMarkdownEditor
+        value={"# Parent checkpoint"}
+        readOnly={false}
+        onChange={onChange}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "Markdown note" });
+    const editorView = EditorView.findFromDOM(editor);
+    expect(editorView).not.toBeNull();
+    act(() => editorView?.dispatch({
+      changes: {
+        from: editorView.state.doc.length,
+        insert: "\n\nExact unsaved typing",
+      },
+    }));
+    expect(onChange).toHaveBeenLastCalledWith("# Parent checkpoint\n\nExact unsaved typing");
+
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    const preview = screen.getByRole("article", { name: "Rendered Markdown note preview" });
+    expect(within(preview).getByText("Exact unsaved typing")).toBeTruthy();
+    expect(editorView?.state.doc.toString()).toBe("# Parent checkpoint\n\nExact unsaved typing");
+  });
+
   it("opens ordinary preview links while keeping remote images inactive", async () => {
     const user = userEvent.setup();
     render(

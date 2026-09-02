@@ -68,6 +68,14 @@ interface ActiveDiskSave {
   readonly controller: AbortController;
 }
 
+interface PendingLocalSave {
+  readonly generation: number;
+  readonly owner: number;
+  readonly editSequence: number;
+  readonly value: string;
+  readonly draft: BrowserNoteDraft;
+}
+
 export interface UseNoteDraftOptions {
   readonly fetch?: typeof globalThis.fetch;
   readonly now?: () => Date;
@@ -78,6 +86,7 @@ export interface UseNoteDraftOptions {
    * creating a new Markdown file.
    */
   readonly openExistingOnly?: boolean;
+  readonly browserDraftSaveDelayMs?: number;
   readonly diskSaveDelayMs?: number;
   readonly handoffDrainTimeoutMs?: number;
   readonly coordinator?: NoteEditCoordinator;
@@ -96,6 +105,7 @@ const defaultDraftStorage = Object.freeze({
   read: readDraft,
   write: writeDraft,
 });
+const defaultBrowserDraftSaveDelayMs = 350;
 const defaultDiskSaveDelayMs = 3_000;
 const defaultHandoffDrainTimeoutMs = 2_500;
 
@@ -255,6 +265,10 @@ export function useNoteDraft(
   const fetchImpl = options.fetch ?? defaultFetch;
   const now = options.now ?? defaultNow;
   const openExistingOnly = options.openExistingOnly ?? false;
+  const browserDraftSaveDelayMs = Math.max(
+    0,
+    options.browserDraftSaveDelayMs ?? defaultBrowserDraftSaveDelayMs,
+  );
   const diskSaveDelayMs = options.diskSaveDelayMs ?? defaultDiskSaveDelayMs;
   const handoffDrainTimeoutMs = Math.max(
     0,
@@ -296,6 +310,8 @@ export function useNoteDraft(
   const inFlightSaveRef = useRef<ActiveDiskSave | null>(null);
   const inFlightCompletionRef = useRef<Promise<void> | null>(null);
   const localWriteTailRef = useRef<Promise<void>>(Promise.resolve());
+  const localWriteTimerRef = useRef<number | null>(null);
+  const pendingLocalSaveRef = useRef<PendingLocalSave | null>(null);
   const coordinationHandleRef = useRef<NoteEditCoordinationHandle | null>(null);
   const retireCoordinationRef = useRef<(() => void) | null>(null);
   const unloadBatchRef = useRef(Symbol("note-draft-generation"));
@@ -316,6 +332,61 @@ export function useNoteDraft(
     localWriteTailRef.current = write.catch(() => undefined);
     return write;
   }, [draftStorage]);
+
+  const discardPendingLocalSave = useCallback(() => {
+    if (localWriteTimerRef.current !== null) {
+      window.clearTimeout(localWriteTimerRef.current);
+      localWriteTimerRef.current = null;
+    }
+    pendingLocalSaveRef.current = null;
+  }, []);
+
+  const flushPendingLocalSave = useCallback((): Promise<void> => {
+    if (localWriteTimerRef.current !== null) {
+      window.clearTimeout(localWriteTimerRef.current);
+      localWriteTimerRef.current = null;
+    }
+    const pending = pendingLocalSaveRef.current;
+    if (pending === null) return Promise.resolve();
+    pendingLocalSaveRef.current = null;
+
+    return enqueueLocalWrite(pending.draft)
+      .then(() => {
+        if (
+          pending.generation !== generationRef.current ||
+          pending.owner !== activeOwnerTokenRef.current ||
+          pending.editSequence !== editSequenceRef.current ||
+          valueRef.current !== pending.value
+        ) {
+          return;
+        }
+        // Publish the coalesced value only after browser recovery has the
+        // exact bytes. Keeping each raw keystroke out of React state prevents
+        // the surrounding schedule, material reader, and tutor from rendering
+        // again while CodeMirror is handling input.
+        setValue(pending.value);
+        if (blockedByConflictRef.current) {
+          setStatus("conflict");
+        } else if (isPersistedCheckpoint(checkpointRef.current)) {
+          setStatus("saved-locally");
+        } else {
+          setStatus("offline");
+          setError("Saved locally. Reconnect or retry to attach this draft to its Markdown file.");
+        }
+      })
+      .catch((reason: unknown) => {
+        if (
+          pending.generation !== generationRef.current ||
+          pending.owner !== activeOwnerTokenRef.current ||
+          pending.editSequence !== editSequenceRef.current
+        ) {
+          return;
+        }
+        setValue(pending.value);
+        setStatus("error");
+        setError(errorMessage(reason, "Local recovery save failed"));
+      });
+  }, [enqueueLocalWrite]);
 
   useEffect(() => {
     const generation = ++generationRef.current;
@@ -478,6 +549,10 @@ export function useNoteDraft(
       if (retired) return;
       retired = true;
       ownershipClaimController.abort();
+      // A route change or tab handoff must not strand the trailing recovery
+      // batch behind its debounce timer. Start that exact write while this
+      // writer epoch is still current, then keep the lock until it settles.
+      const pendingLocalSave = flushPendingLocalSave();
       if (generation === generationRef.current) ++generationRef.current;
       ++loadGenerationRef.current;
       loadedRef.current = false;
@@ -485,7 +560,10 @@ export function useNoteDraft(
       activeOwnerTokenRef.current = null;
       const activeSave = inFlightSaveRef.current;
       activeSave?.controller.abort();
-      const localTail = localWriteTailRef.current;
+      const localTail = Promise.allSettled([
+        pendingLocalSave,
+        localWriteTailRef.current,
+      ]);
       const diskTail = inFlightCompletionRef.current;
       if (coordinationHandleRef.current === handle) {
         coordinationHandleRef.current = null;
@@ -528,6 +606,7 @@ export function useNoteDraft(
     coordinator,
     coordinationRetrySequence,
     draftStorage,
+    flushPendingLocalSave,
     handoffDrainTimeoutMs,
     noteId,
   ]);
@@ -781,7 +860,6 @@ export function useNoteDraft(
       const unloadBatch = unloadBatchRef.current;
       const checkpoint = checkpointRef.current;
       valueRef.current = nextValue;
-      setValue(nextValue);
       // A conflict is a stable, learner-actionable state. Keep its recovery
       // controls mounted while every accepted edit is secured in browser
       // storage; briefly replacing the conflict with "saving" made the whole
@@ -791,45 +869,29 @@ export function useNoteDraft(
         setError(null);
       }
       markBrowserDraftAccepted(unloadBatch, editSequence);
-
-      void enqueueLocalWrite({
-        noteId,
-        content: nextValue,
-        baseRevision: checkpoint.revision,
-        baseContentHash: checkpoint.contentHash,
-        updatedAt: now().toISOString(),
-      })
-        .then(() => {
-          if (
-            generation !== generationRef.current ||
-            owner !== activeOwnerTokenRef.current ||
-            editSequence !== editSequenceRef.current ||
-            valueRef.current !== nextValue
-          ) {
-            return;
-          }
-          if (blockedByConflictRef.current) {
-            setStatus("conflict");
-          } else if (isPersistedCheckpoint(checkpointRef.current)) {
-            setStatus("saved-locally");
-          } else {
-            setStatus("offline");
-            setError("Saved locally. Reconnect or retry to attach this draft to its Markdown file.");
-          }
-        })
-        .catch((reason: unknown) => {
-          if (
-            generation !== generationRef.current ||
-            owner !== activeOwnerTokenRef.current ||
-            editSequence !== editSequenceRef.current
-          ) {
-            return;
-          }
-          setStatus("error");
-          setError(errorMessage(reason, "Local recovery save failed"));
-        });
+      pendingLocalSaveRef.current = {
+        generation,
+        owner,
+        editSequence,
+        value: nextValue,
+        draft: {
+          noteId,
+          content: nextValue,
+          baseRevision: checkpoint.revision,
+          baseContentHash: checkpoint.contentHash,
+          updatedAt: now().toISOString(),
+          editSequence,
+        },
+      };
+      if (localWriteTimerRef.current !== null) {
+        window.clearTimeout(localWriteTimerRef.current);
+      }
+      localWriteTimerRef.current = window.setTimeout(() => {
+        localWriteTimerRef.current = null;
+        void flushPendingLocalSave();
+      }, browserDraftSaveDelayMs);
     },
-    [enqueueLocalWrite, noteId, now],
+    [browserDraftSaveDelayMs, flushPendingLocalSave, noteId, now],
   );
 
   useEffect(() => {
@@ -942,6 +1004,10 @@ export function useNoteDraft(
           const latestEditSequence = editSequenceRef.current;
           const hasNewerEdit =
             latestEditSequence !== editSequenceAtSchedule || latestContent !== valueAtSchedule;
+          // Replace any trailing recovery save that still carries the old
+          // disk checkpoint with this exact latest value and acknowledged
+          // revision.
+          discardPendingLocalSave();
           setStatus("saving-local");
           await enqueueLocalWrite({
             noteId,
@@ -949,6 +1015,7 @@ export function useNoteDraft(
             baseRevision: acknowledged.revision,
             baseContentHash: acknowledged.contentHash,
             updatedAt: now().toISOString(),
+            editSequence: latestEditSequence,
           });
           if (
             generation !== generationRef.current ||
@@ -984,6 +1051,7 @@ export function useNoteDraft(
     return () => window.clearTimeout(timer);
   }, [
     coordinationStatus,
+    discardPendingLocalSave,
     diskSaveDelayMs,
     enqueueLocalWrite,
     fetchImpl,
@@ -1005,6 +1073,7 @@ export function useNoteDraft(
       blockedByConflictRef.current || !isPersistedCheckpoint(checkpoint);
     setError(null);
     setStatus("saving-local");
+    discardPendingLocalSave();
     // A failed browser-storage write can leave the newest accepted keystrokes
     // only in memory. Always checkpoint that exact visible value before a
     // conflict/offline reconciliation is allowed to replace editor state.
@@ -1014,6 +1083,7 @@ export function useNoteDraft(
       baseRevision: checkpoint.revision,
       baseContentHash: checkpoint.contentHash,
       updatedAt: now().toISOString(),
+      editSequence,
     })
       .then(() => {
         if (
@@ -1038,7 +1108,7 @@ export function useNoteDraft(
         setStatus("error");
         setError(errorMessage(reason, "Local recovery save failed"));
       });
-  }, [enqueueLocalWrite, noteId, now]);
+  }, [discardPendingLocalSave, enqueueLocalWrite, noteId, now]);
 
   const resolveConflict = useCallback((choice: "keep-local" | "use-disk") => {
     if (
@@ -1057,6 +1127,7 @@ export function useNoteDraft(
 
     setStatus("saving-local");
     setError(null);
+    discardPendingLocalSave();
     void (async () => {
       try {
         // Preserve the exact visible bytes before any network reconciliation.
@@ -1066,6 +1137,7 @@ export function useNoteDraft(
           baseRevision: staleCheckpoint.revision,
           baseContentHash: staleCheckpoint.contentHash,
           updatedAt: now().toISOString(),
+          editSequence: localEditSequence,
         });
         if (
           generation !== generationRef.current ||
@@ -1155,7 +1227,7 @@ export function useNoteDraft(
         setError(errorMessage(reason, "The note conflict could not be resolved"));
       }
     })();
-  }, [enqueueLocalWrite, fetchImpl, noteId, now]);
+  }, [discardPendingLocalSave, enqueueLocalWrite, fetchImpl, noteId, now]);
 
   const recoverDiskFile = useCallback(() => {
     if (!diskRecoveryAvailable || activeOwnerTokenRef.current === null) return;
@@ -1208,8 +1280,11 @@ export function useNoteDraft(
     return () => window.removeEventListener("online", retryWhenOnline);
   }, [retryDiskSave, status]);
 
+  const getValue = useCallback(() => valueRef.current, []);
+
   return {
     value,
+    getValue,
     updateValue,
     status,
     error,

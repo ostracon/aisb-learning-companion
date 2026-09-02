@@ -851,6 +851,7 @@ interface NotesWorkspaceProps {
   readonly noteId: string;
   readonly note: {
     readonly value: string;
+    readonly getValue: () => string;
     readonly status: NoteSaveStatus;
     readonly error: string | null;
     readonly baseRevision: number;
@@ -1577,7 +1578,7 @@ function WorkspacePage({
       request_ids: requestIds,
       note_draft: {
         note_id: noteId,
-        content: note.value,
+        content: note.getValue(),
         base_revision: note.baseRevision,
         save_status: note.status,
       },
@@ -2324,7 +2325,7 @@ function WorkspacePage({
                   event_curriculum_binding_revision: isStudy ? null : eventCurriculumBindings.revision,
                   linked_section_ids: isStudy ? [] : selectedEventBinding?.sectionIds ?? [],
                   outcome_ids: outcomes.map(({ outcome }) => outcome.outcomeId),
-                  note: { note_id: noteId, revision: note.baseRevision, status: note.status, characters: note.value.length },
+                  note: { note_id: noteId, revision: note.baseRevision, status: note.status, characters: note.getValue().length },
                   aisb_root: "<aisb-root>",
                   section_paths: sections.map((section: CurriculumSectionView) => section.sourcePath),
                   note_context: "exact live draft will be frozen at Send",
