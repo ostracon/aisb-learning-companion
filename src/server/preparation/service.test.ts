@@ -109,6 +109,78 @@ describe("PreparationService", () => {
     expect(run.sources[0]?.origins.map(({ sectionId }) => sectionId)).toEqual(["1.1", "1.2"]);
   });
 
+  it("inventories arXiv abstract links as full PDFs and deduplicates equivalent spellings", async () => {
+    const store = new MemoryStore();
+    const service = new PreparationService({
+      manifests: {
+        async readManifests() {
+          return [
+            manifest("1.1", [{ label: "Abstract", url: "https://arxiv.org/abs/2504.10374#page" }]),
+            manifest("1.2", [{ label: "PDF", url: "https://www.arxiv.org/pdf/2504.10374.pdf?download=1" }]),
+          ];
+        },
+      },
+      fetcher: { async fetch() { throw new Error("inventory must remain local"); } },
+      store,
+      now: () => new Date("2026-08-30T10:00:00.000Z"),
+      createId: () => "prep_arxiv_inventory",
+    });
+
+    const run = await service.start(false);
+
+    expect(run.discoveredCount).toBe(1);
+    expect(run.sources[0]).toMatchObject({
+      requestedUrl: "https://arxiv.org/pdf/2504.10374",
+      originCount: 2,
+      status: "not_fetched",
+    });
+    expect(run.sources[0]?.origins.map(({ sectionId }) => sectionId)).toEqual(["1.1", "1.2"]);
+  });
+
+  it("fetches an arXiv landing-page reference from its full PDF endpoint", async () => {
+    const store = new MemoryStore();
+    const fetchCalls: string[] = [];
+    const bytes = Buffer.from("%PDF-1.7 full paper");
+    const service = new PreparationService({
+      manifests: {
+        async readManifests() {
+          return [manifest("2.1", [{ label: "Paper", url: "https://arxiv.org/abs/2305.00944" }])];
+        },
+      },
+      fetcher: {
+        async fetch(url) {
+          fetchCalls.push(url);
+          return {
+            ok: true as const,
+            requestedUrl: url,
+            finalUrl: url,
+            mediaType: "pdf" as const,
+            bytes,
+            contentHash: "sha256:bb532ac6d341632ecb80ec422ae2e84bc853f398b1bbe921526febea8f6579f1",
+            redirects: [],
+          };
+        },
+      },
+      pdfTextExtractor: {
+        async extract() {
+          return { extractor: "poppler-pdftotext" as const, pages: [{ pageNumber: 1, text: "Paper text." }] };
+        },
+      },
+      store,
+      now: () => new Date("2026-08-30T10:00:00.000Z"),
+      createId: () => "prep_arxiv_pdf",
+    });
+
+    const run = await service.start(true);
+
+    expect(fetchCalls).toEqual(["https://arxiv.org/pdf/2305.00944"]);
+    expect(run.sources[0]).toMatchObject({
+      requestedUrl: "https://arxiv.org/pdf/2305.00944",
+      mediaType: "pdf",
+      textProjection: { status: "complete", pageCount: 1 },
+    });
+  });
+
   it("caches immutable HTML bytes and an inert Markdown projection", async () => {
     const store = new MemoryStore();
     const bytes = Buffer.from("<title>Safety</title><script>ignore()</script><h1>Boundary</h1><p>Public text &amp; facts.</p>");

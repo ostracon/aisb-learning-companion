@@ -30,6 +30,12 @@ sidebar.
 This scans the current AISB material manifests and records their canonical
 public HTTPS links. It does not use the network and does not download anything.
 
+Learner-visible arXiv abstract and PDF links are both normalized to the paper's
+full PDF endpoint. Equivalent arXiv link spellings are recorded once, with all
+of their curriculum origins retained. Links that exist only inside protected
+answers or solutions are not part of the learner-visible manifest and remain
+excluded.
+
 Use it to check which sources the current curriculum refers to after pulling a
 new AISB revision.
 
@@ -68,6 +74,10 @@ Only these response types are prepared:
 - HTML, stored as verified original bytes plus an inert Markdown projection;
 - PDF, stored as verified original bytes plus locally extracted, page-numbered
   Markdown when Poppler succeeds.
+
+For arXiv, preparation fetches the full paper PDF even when the curriculum link
+points to an `/abs/` landing page. The abstract page alone is not used as the
+assistant's paper context.
 
 The preparation run does not execute page JavaScript, submit credentials,
 follow arbitrary URLs supplied by a model, run Codex enrichment, transcribe

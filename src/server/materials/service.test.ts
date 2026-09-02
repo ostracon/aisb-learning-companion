@@ -99,6 +99,7 @@ describe("CurriculumMaterialService", () => {
         "[Exercises](section1_instructions.md)",
         "[Next section](../1.2-next/README.md#background)",
         "[External guide](https://example.test/guide?q=1)",
+        "Bare paper https://arxiv.org/pdf/1412.6572",
       ].join("\n"),
     );
     await write(root, "1.1-intro/section1_instructions.md", "# Participant exercises\nDo the work.");
@@ -141,6 +142,11 @@ describe("CurriculumMaterialService", () => {
       kind: "external",
       label: "External guide",
       url: "https://example.test/guide?q=1",
+    });
+    expect(linkByLabel(readme.links, "https://arxiv.org/pdf/1412.6572")).toEqual({
+      kind: "external",
+      label: "https://arxiv.org/pdf/1412.6572",
+      url: "https://arxiv.org/pdf/1412.6572",
     });
     expect(new Set(manifest.documents.map((document) => document.documentId)).size).toBe(2);
 
@@ -561,6 +567,7 @@ describe("CurriculumMaterialService", () => {
         "<details><summary>Reference solution</summary>",
         "<!-- </details> -->",
         "[SECRET LABEL](secret_instructions.md)",
+        "https://arxiv.org/abs/2410.01294",
         "</details>",
       ].join("\n"),
     );
@@ -570,6 +577,7 @@ describe("CurriculumMaterialService", () => {
     expect(manifest.documents).toHaveLength(2);
     expect(JSON.stringify(manifest)).not.toContain("SECRET LABEL");
     expect(JSON.stringify(manifest)).not.toContain("Hidden destination");
+    expect(JSON.stringify(manifest)).not.toContain("2410.01294");
   });
 
   it("maps canonical section 0.1 to the day0-setup README", async () => {

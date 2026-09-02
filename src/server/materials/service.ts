@@ -1420,10 +1420,6 @@ function markdownLinks(markdown: string): ParsedMarkdownLink[] {
   });
   visitMarkdownNodes(root, (node) => {
     if (node.type !== "link" && node.type !== "linkReference") return;
-    const range = astNodeRange(node, markdown.length);
-    const authored = range ? markdown.slice(range.start, range.end).trimStart() : "";
-    // Do not turn GFM bare URLs or autolinks into material-graph edges.
-    if (!authored.startsWith("[")) return;
     const target = node.type === "link" ? node.url : definitions.get(node.identifier);
     if (!target?.trim()) return;
     const label = markdownNodeText(node).replace(/\s+/gu, " ").trim() || "Link";

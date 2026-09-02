@@ -310,6 +310,34 @@ function canonicalExternalUrl(value: string): string | null {
   }
 }
 
+/**
+ * Turn a learner-visible reference into the resource preparation should fetch.
+ *
+ * arXiv abstract pages expose only metadata and an abstract. For retrieval, the
+ * useful immutable source is the corresponding paper PDF, so normalize both
+ * `/abs/...` and `/pdf/...` spellings before inventory deduplication. Keep this
+ * separate from canonicalExternalUrl: old immutable run records legitimately
+ * contain abstract URLs and must continue to pass schema validation.
+ */
+function preparationTargetUrl(value: string): string | null {
+  const canonical = canonicalExternalUrl(value);
+  if (canonical === null) return null;
+
+  const url = new URL(canonical);
+  if (url.hostname !== "arxiv.org" && url.hostname !== "www.arxiv.org") return canonical;
+
+  const match = url.pathname.match(/^\/(?:abs|pdf)\/(.+?)(?:\.pdf)?\/?$/u);
+  const identifier = match?.[1];
+  if (identifier === undefined || !isArxivIdentifier(identifier)) return canonical;
+
+  return `https://arxiv.org/pdf/${identifier}`;
+}
+
+function isArxivIdentifier(value: string): boolean {
+  return /^\d{4}\.\d{4,5}(?:v\d+)?$/u.test(value)
+    || /^[a-z-]+(?:\.[A-Z]{2})?\/\d{7}(?:v\d+)?$/iu.test(value);
+}
+
 function decodeEntities(value: string): string {
   return value
     .replace(/&nbsp;/giu, " ")
@@ -373,7 +401,7 @@ function inventory(manifests: readonly CurriculumMaterialManifest[]): readonly I
     for (const document of manifest.documents) {
       for (const link of document.links) {
         if (link.kind !== "external") continue;
-        const url = canonicalExternalUrl(link.url);
+        const url = preparationTargetUrl(link.url);
         if (url === null) continue;
         const origins = byUrl.get(url) ?? new Map<string, PreparationSourceOriginView>();
         const origin = Object.freeze({

@@ -194,6 +194,10 @@ bytes and, when Poppler succeeds, page-numbered searchable text. The current
 cache run covers the complete bounded inventory with six workers rather than an
 arbitrary small source count.
 
+Learner-visible arXiv landing-page links are automatically resolved to the full
+paper PDF and deduplicated with equivalent direct-PDF links. Protected answer
+and solution folds remain outside the preparation inventory.
+
 Preparation is never automatic. See [Preparing external sources](./docs/source-preparation.md)
 for the exact workflow, current limits, result statuses, storage layout, and
 which assistants may retrieve prepared text.
