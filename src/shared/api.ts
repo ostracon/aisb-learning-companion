@@ -146,7 +146,7 @@ export interface SetEventCurriculumBindingRequest {
 }
 
 export type MaterialAccessClassification = "tutor_readable" | "human_reader_only";
-export type MaterialDocumentKind = "readme" | "participant_instructions" | "learner_markdown";
+export type MaterialDocumentKind = "readme" | "participant_instructions" | "learner_markdown" | "learner_pdf";
 
 export type MaterialLinkView =
   | { kind: "document"; label: string; documentId: string; fragment?: string }
@@ -184,6 +184,7 @@ export interface MaterialDisplayProjection {
 export interface MaterialDisplayFoldView {
   foldId: string;
   summary: string;
+  summaryMarkdown?: string;
   body: MaterialDisplayProjection;
   contextVisibility: "included" | "browser_only";
   defaultOpen: boolean;
@@ -195,7 +196,7 @@ export interface MaterialDocumentResponse {
   manifestRevision: string;
   document: MaterialDocumentView;
   display: MaterialDisplayProjection;
-  displayProjection: "structured_readme" | "structured_instructions";
+  displayProjection: "structured_readme" | "structured_instructions" | "pdf_text";
   browserOnlyFoldCount: number;
 }
 

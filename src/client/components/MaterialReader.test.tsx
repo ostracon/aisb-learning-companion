@@ -519,6 +519,7 @@ describe("MaterialReader", () => {
         folds: [{
           foldId,
           summary: "Question: Why is prompt injection structurally different?",
+          summaryMarkdown: "<b>Question:</b> Why is `prompt injection` structurally different?",
           contextVisibility: "browser_only",
           defaultOpen: false,
           body: {
@@ -550,13 +551,15 @@ describe("MaterialReader", () => {
     );
 
     const summaryText = await screen.findByText(
-      "Question: Why is prompt injection structurally different?",
+      "Question:",
     );
     const disclosure = summaryText.closest("details");
     const summary = disclosure?.querySelector("summary") as HTMLElement;
     const currentDisclosure = () => screen.getByText(
-      "Question: Why is prompt injection structurally different?",
+      "Question:",
     ).closest("details");
+    expect(summaryText.tagName).toBe("STRONG");
+    expect(screen.getByText("prompt injection").tagName).toBe("CODE");
     expect(disclosure?.open).toBe(false);
     expect(screen.queryByText("Browser only")).toBeNull();
     expect(screen.getByText("BROWSER_ONLY_GUIDANCE_CANARY")).toBeTruthy();
@@ -587,7 +590,7 @@ describe("MaterialReader", () => {
       />,
     );
     expect(screen.getByText(
-      "Question: Why is prompt injection structurally different?",
+      "Question:",
     ).closest("details")?.open).toBe(true);
   });
 

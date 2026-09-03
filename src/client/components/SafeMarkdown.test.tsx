@@ -279,6 +279,63 @@ describe("SafeMarkdown", () => {
     expect(screen.getByText("T < 1").tagName).toBe("CODE");
   });
 
+  it("normalizes compact and edge-filled display maths without consuming later content", () => {
+    const markdown = [
+      "$$x = y$$",
+      "",
+      "$$a = b",
+      "= c.$$",
+      "",
+      "AFTER_FORMULA_CANARY",
+      "",
+      "> $$q = r$$",
+      "",
+      "- $$u = v$$",
+    ].join("\n");
+    const normalized = normalizeMarkdownMathDelimiters(markdown);
+    expect(normalized).toContain("$$\nx = y\n$$");
+    expect(normalized).toContain("$$\na = b\n= c.\n$$");
+    expect(normalized).toContain("> $$\n> q = r\n> $$");
+    expect(normalized).toContain("- $$\n  u = v\n  $$");
+
+    const { container } = render(
+      <SafeMarkdown
+        markdown={markdown}
+        headingIdPrefix="display-math-heading-"
+        inertLinkTitle="Links are inactive"
+        omittedImageLabel={null}
+      />,
+    );
+    expect(container.querySelectorAll(".katex-display")).toHaveLength(4);
+    expect(container.textContent).toContain("AFTER_FORMULA_CANARY");
+  });
+
+  it("renders only the authored semantic inline HTML allowlist", () => {
+    const { container } = render(
+      <SafeMarkdown
+        markdown={[
+          "A <strong>strong point</strong> with x<sup>2</sup>.",
+          "",
+          "<small><sup>1</sup> **Small supporting note.**</small>",
+          "",
+          "Use <code>safe_value</code>; <span onclick=\"unsafe()\">plain span</span>.",
+        ].join("\n")}
+        headingIdPrefix="safe-inline-heading-"
+        inertLinkTitle="Links are inactive"
+        omittedImageLabel={null}
+        allowSafeInlineHtml
+      />,
+    );
+
+    expect(screen.getByText("strong point").tagName).toBe("STRONG");
+    expect(screen.getByText("2").tagName).toBe("SUP");
+    expect(screen.getByText(/Small supporting note/).closest("small")).toBeTruthy();
+    expect(screen.getByText("safe_value").tagName).toBe("CODE");
+    expect(container.querySelector("span[onclick]")).toBeNull();
+    expect(container.textContent).not.toContain("unsafe()");
+    expect(container.textContent).toContain("plain span");
+  });
+
   it("keeps bracket delimiters literal inside code and when they are unmatched", () => {
     const markdown = [
       "Outside \\(x + y\\).",

@@ -297,7 +297,9 @@ export class DayReviewRetrievalService {
           status: "ready",
           detail: document.kind === "participant_instructions"
             ? "Learner-visible instruction projection; protected folds are omitted."
-            : "Learner-visible curriculum Markdown projection.",
+            : document.kind === "learner_pdf"
+              ? "Page-aware text extracted from a repository-local curriculum PDF."
+              : "Learner-visible curriculum Markdown projection.",
         }, async () => {
           const projection = await this.sources.materials.readForModelContext({
             sectionId: section.sectionId,

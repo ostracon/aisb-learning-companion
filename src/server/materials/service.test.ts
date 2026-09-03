@@ -190,6 +190,48 @@ describe("CurriculumMaterialService", () => {
     });
   });
 
+  it("extracts a linked local PDF into browser and tutor-readable page text", async () => {
+    const root = await temporaryAisbRoot();
+    await write(root, "7.1-report/README.md", "# Report\n[SL5 recommendations](SL5.pdf)");
+    await writeBytes(root, "7.1-report/SL5.pdf", Buffer.from("%PDF-test"));
+    const service = new CurriculumMaterialService(root, {}, {
+      extract: async () => ({
+        extractor: "poppler-pdftotext" as const,
+        pages: [
+          { pageNumber: 1, text: "SUPPLY_CHAIN_CANARY" },
+          { pageNumber: 2, text: "NETWORK_SECURITY_CANARY" },
+        ],
+      }),
+    });
+
+    const manifest = await service.manifest("7.1");
+    const pdf = manifest.documents.find((document) => document.kind === "learner_pdf");
+    expect(pdf).toMatchObject({
+      filename: "SL5.pdf",
+      accessClassification: "tutor_readable",
+    });
+    expect(linkByLabel(manifest.documents[0]!.links, "SL5 recommendations")).toMatchObject({
+      kind: "document",
+      documentId: pdf?.documentId,
+    });
+
+    const input = {
+      sectionId: "7.1",
+      documentId: pdf!.documentId,
+      expectedManifestRevision: manifest.revision,
+    };
+    const [display, model] = await Promise.all([
+      service.readForDisplay(input),
+      service.readForModelContext(input),
+    ]);
+    expect(display.displayProjection).toBe("pdf_text");
+    expect(display.display.markdown).toContain("## Page 2");
+    expect(display.display.markdown).toContain("NETWORK_SECURITY_CANARY");
+    expect(model.modelProjection).toBe("local_pdf_text");
+    expect(model.modelSafeMarkdown).toContain("SUPPLY_CHAIN_CANARY");
+    expect(JSON.stringify(manifest)).not.toContain(root);
+  });
+
   it("removes folded hints and answers from the Study projection", async () => {
     const root = await temporaryAisbRoot();
     await write(
@@ -406,6 +448,9 @@ describe("CurriculumMaterialService", () => {
       "Question: What crosses the boundary?",
       "Reviewed teaching note",
     ]);
+    expect(display.display.folds[0]?.summaryMarkdown).toBe(
+      "<b>Question:</b> What crosses the boundary?",
+    );
     expect(JSON.stringify(display.display)).toContain("BROWSER_ONLY_ANSWER_CANARY");
     expect(JSON.stringify(display.display)).toContain("NESTED_BROWSER_ONLY_CANARY");
     expect(display.browserOnlyFoldCount).toBe(2);
@@ -487,6 +532,51 @@ describe("CurriculumMaterialService", () => {
     expect(model.markdown).not.toContain("COMMENT_TITLE");
     expect(model.markdown).not.toContain("COMMENT_SECRET");
     expect(model.markdown).not.toContain("MODEL_ONLY_SECRET");
+  });
+
+  it("keeps disclosures after edge-filled display maths structurally visible", () => {
+    const source = [
+      "Before formula.",
+      "$$x = a",
+      "+ b.$$",
+      "<details><summary><b>Discussion:</b> why is this linear?</summary>",
+      "DISCUSSION_BODY_AFTER_MATH",
+      "</details>",
+      "After disclosure.",
+    ].join("\n");
+
+    const browser = projectCurriculumMarkdownForBrowser(source);
+    expect(browser.display.folds).toHaveLength(1);
+    expect(browser.display.folds[0]).toMatchObject({
+      summary: "Discussion: why is this linear?",
+      summaryMarkdown: "<b>Discussion:</b> why is this linear?",
+    });
+    expect(browser.display.folds[0]?.body.markdown).toContain("DISCUSSION_BODY_AFTER_MATH");
+    expect(browser.display.markdown).toContain("After disclosure.");
+  });
+
+  it("keeps a disclosure containing several compact display-math forms intact", () => {
+    const source = [
+      "<details>",
+      "<summary><b>Discussion: matrix projection</b></summary><blockquote>",
+      "$$\\text{oproj}(x) = x - a",
+      "= x - b",
+      "= (I - P)x.$$",
+      "Narrative between formulae.",
+      "$$x = W_E e + \\sum_\\ell W_\\ell v_\\ell,$$",
+      "More narrative.",
+      "$$(I - P)x = \\sum_\\ell (I - P)W_\\ell v_\\ell.$$",
+      "$$W' := (I - P)W",
+      "\\Longrightarrow r^\\top(W'v)=0.$$",
+      "DISCUSSION_END_CANARY",
+      "</blockquote></details>",
+      "AFTER_DISCUSSION_CANARY",
+    ].join("\n");
+
+    const browser = projectCurriculumMarkdownForBrowser(source);
+    expect(browser.display.folds).toHaveLength(1);
+    expect(browser.display.folds[0]?.body.markdown).toContain("DISCUSSION_END_CANARY");
+    expect(browser.display.markdown).toContain("AFTER_DISCUSSION_CANARY");
   });
 
   it("cannot end a protected fold with details syntax inside code or comments", () => {

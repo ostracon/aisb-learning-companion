@@ -1,4 +1,5 @@
 import { isValidElement, type ReactNode } from "react";
+import type { Nodes, Parent, Root } from "mdast";
 import rehypeKatex from "rehype-katex";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -45,6 +46,10 @@ export interface SafeMarkdownProps {
   readonly allowSingleDollarMath?: boolean;
   /** Authored Markdown may render fenced Mermaid source as a diagram. */
   readonly allowMermaidDiagrams?: boolean;
+  /** Authored material may opt into a tiny semantic HTML allowlist. */
+  readonly allowSafeInlineHtml?: boolean;
+  /** Compact labels can render Markdown without an invalid paragraph wrapper. */
+  readonly inline?: boolean;
 }
 
 function headingText(node: ReactNode): string {
@@ -157,6 +162,179 @@ function replaceBracketMathOutsideInlineCode(value: string): string {
   return output + replaceBracketMath(value.slice(plainStart));
 }
 
+interface MarkdownContainerLine {
+  readonly openingPrefix: string;
+  readonly continuationPrefix: string;
+  readonly content: string;
+  readonly newline: string;
+}
+
+function markdownContainerLine(line: string): MarkdownContainerLine {
+  const newline = line.endsWith("\n") ? "\n" : "";
+  const value = newline ? line.slice(0, -1) : line;
+  let openingPrefix = "";
+  let continuationPrefix = "";
+  let remainder = value;
+
+  while (true) {
+    const quote = /^ {0,3}>[\t ]?/u.exec(remainder);
+    if (quote) {
+      openingPrefix += quote[0];
+      continuationPrefix += quote[0];
+      remainder = remainder.slice(quote[0].length);
+      continue;
+    }
+    const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[\t ]+/u.exec(remainder);
+    if (list) {
+      openingPrefix += list[0];
+      continuationPrefix += " ".repeat(indentationWidth(list[0]));
+      remainder = remainder.slice(list[0].length);
+      continue;
+    }
+    const indentation = /^ {0,3}/u.exec(remainder)?.[0] ?? "";
+    openingPrefix += indentation;
+    continuationPrefix += indentation;
+    remainder = remainder.slice(indentation.length);
+    break;
+  }
+
+  return { openingPrefix, continuationPrefix, content: remainder, newline };
+}
+
+/**
+ * remark-math treats one-line $$…$$ as inline maths, and requires multiline
+ * display delimiters to occupy their own lines. Course material commonly uses
+ * both compact forms, so canonicalize only line-leading standalone blocks.
+ */
+function normalizeStandaloneDisplayMath(value: string): string {
+  const lines = value.match(/[^\n]*(?:\n|$)/gu) ?? [];
+  const output: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = markdownContainerLine(lines[index] ?? "");
+    const singleLine = /^\$\$(.+?)\$\$[\t ]*$/u.exec(line.content);
+    if (singleLine?.[1] && !singleLine[1].includes("$$")) {
+      output.push(
+        `${line.openingPrefix}$$${line.newline || "\n"}`,
+        `${line.continuationPrefix}${singleLine[1]}${line.newline || "\n"}`,
+        `${line.continuationPrefix}$$${line.newline}`,
+      );
+      continue;
+    }
+
+    const opening = /^\$\$(.+)$/u.exec(line.content);
+    if (!opening?.[1] || opening[1].includes("$$")) {
+      output.push(lines[index] ?? "");
+      continue;
+    }
+
+    let closingIndex = -1;
+    let closingBody = "";
+    for (let candidate = index + 1; candidate < lines.length; candidate += 1) {
+      const candidateLine = markdownContainerLine(lines[candidate] ?? "");
+      const closing = /^(.*?)\$\$[\t ]*$/u.exec(candidateLine.content);
+      if (!closing) continue;
+      closingIndex = candidate;
+      closingBody = closing[1] ?? "";
+      break;
+    }
+    if (closingIndex < 0) {
+      output.push(lines[index] ?? "");
+      continue;
+    }
+
+    output.push(
+      `${line.openingPrefix}$$${line.newline || "\n"}`,
+      `${line.continuationPrefix}${opening[1]}${line.newline || "\n"}`,
+    );
+    for (let candidate = index + 1; candidate < closingIndex; candidate += 1) {
+      output.push(lines[candidate] ?? "");
+    }
+    const closing = markdownContainerLine(lines[closingIndex] ?? "");
+    if (closingBody) {
+      output.push(`${closing.openingPrefix}${closingBody}${closing.newline || "\n"}`);
+    }
+    output.push(`${closing.openingPrefix}$$${closing.newline}`);
+    index = closingIndex;
+  }
+
+  return output.join("");
+}
+
+const SAFE_INLINE_HTML_TAG = /^<\s*(\/?)\s*(strong|b|em|i|code|sup|small)\s*>$/iu;
+
+type SafeInlineHtmlNode = Nodes & {
+  data?: { hName?: string };
+};
+
+function safeInlineNode(tag: string, children: Nodes[]): SafeInlineHtmlNode {
+  if (tag === "strong" || tag === "b") {
+    return { type: "strong", children } as SafeInlineHtmlNode;
+  }
+  if (tag === "em" || tag === "i") {
+    return { type: "emphasis", children } as SafeInlineHtmlNode;
+  }
+  if (tag === "code") {
+    const value = children.map((child) => (
+      child.type === "text" || child.type === "inlineCode" ? child.value : ""
+    )).join("");
+    return { type: "inlineCode", value } as SafeInlineHtmlNode;
+  }
+  return {
+    type: "safeInlineHtml",
+    data: { hName: tag },
+    children,
+  } as unknown as SafeInlineHtmlNode;
+}
+
+function transformSafeInlineHtmlChildren(children: Nodes[]): Nodes[] {
+  const output: Nodes[] = [];
+  for (let index = 0; index < children.length; index += 1) {
+    const node = children[index]!;
+    const opening = node.type === "html" ? SAFE_INLINE_HTML_TAG.exec(node.value) : null;
+    if (!opening || opening[1]) {
+      output.push(node);
+      continue;
+    }
+
+    const tag = opening[2]!.toLowerCase();
+    let depth = 1;
+    let closingIndex = -1;
+    for (let candidate = index + 1; candidate < children.length; candidate += 1) {
+      const possible = children[candidate]!;
+      const match = possible.type === "html" ? SAFE_INLINE_HTML_TAG.exec(possible.value) : null;
+      if (!match || match[2]!.toLowerCase() !== tag) continue;
+      depth += match[1] ? -1 : 1;
+      if (depth === 0) {
+        closingIndex = candidate;
+        break;
+      }
+    }
+    if (closingIndex < 0) {
+      output.push(node);
+      continue;
+    }
+
+    const inner = transformSafeInlineHtmlChildren(children.slice(index + 1, closingIndex));
+    output.push(safeInlineNode(tag, inner));
+    index = closingIndex;
+  }
+  return output;
+}
+
+/** Exact, attribute-free semantic tags only; all other authored HTML stays inert. */
+function remarkSafeInlineHtml() {
+  return (tree: Root) => {
+    const visit = (node: Nodes | Root) => {
+      if (!("children" in node)) return;
+      const parent = node as Parent;
+      parent.children = transformSafeInlineHtmlChildren(parent.children as Nodes[]) as Parent["children"];
+      for (const child of parent.children) visit(child as Nodes);
+    };
+    visit(tree);
+  };
+}
+
 interface MarkdownFence {
   readonly marker: "`" | "~";
   readonly length: number;
@@ -222,7 +400,7 @@ export function normalizeMarkdownMathDelimiters(markdown: string): string {
   let fence: MarkdownFence | null = null;
 
   const flushProse = () => {
-    output += replaceBracketMathOutsideInlineCode(prose);
+    output += normalizeStandaloneDisplayMath(replaceBracketMathOutsideInlineCode(prose));
     prose = "";
   };
 
@@ -271,6 +449,8 @@ export function SafeMarkdown({
   showRawHtmlSource = false,
   allowSingleDollarMath = false,
   allowMermaidDiagrams = false,
+  allowSafeInlineHtml = false,
+  inline = false,
 }: SafeMarkdownProps) {
   const slugger = new MarkdownHeadingSlugger();
   let linkIndex = 0;
@@ -278,7 +458,11 @@ export function SafeMarkdown({
 
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: allowSingleDollarMath }]]}
+      remarkPlugins={[
+        remarkGfm,
+        [remarkMath, { singleDollarTextMath: allowSingleDollarMath }],
+        ...(allowSafeInlineHtml ? [remarkSafeInlineHtml] : []),
+      ]}
       rehypePlugins={[[rehypeKatex, {
         maxExpand: 1_000,
         maxSize: 50,
@@ -288,6 +472,7 @@ export function SafeMarkdown({
       }]]}
       skipHtml={!showRawHtmlSource}
       components={{
+        p: ({ children }) => inline ? <span className="markdown-inline">{children}</span> : <p>{children}</p>,
         h1: ({ children }) => <h1 id={headingId(children)}>{children}</h1>,
         h2: ({ children }) => <h2 id={headingId(children)}>{children}</h2>,
         h3: ({ children }) => <h3 id={headingId(children)}>{children}</h3>,

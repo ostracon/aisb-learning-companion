@@ -17,8 +17,14 @@ import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
+import {
+  PopplerPdfTextExtractor,
+  type PdfTextExtraction,
+  type PdfTextExtractor,
+} from "../preparation/pdf-text-extractor.js";
+
 export type MaterialAccessClassification = "tutor_readable" | "human_reader_only";
-export type MaterialDocumentKind = "readme" | "participant_instructions" | "learner_markdown";
+export type MaterialDocumentKind = "readme" | "participant_instructions" | "learner_markdown" | "learner_pdf";
 
 export type UnavailableMaterialReason =
   | "protected"
@@ -108,6 +114,8 @@ export interface CurriculumMaterialDisplayProjection {
 export interface CurriculumMaterialDisplayFold {
   readonly foldId: string;
   readonly summary: string;
+  /** Sanitized inline Markdown used only by the browser disclosure label. */
+  readonly summaryMarkdown: string;
   readonly body: CurriculumMaterialDisplayProjection;
   /** Browser-only folds are deliberately excluded from tutor/model context. */
   readonly contextVisibility: "included" | "browser_only";
@@ -120,7 +128,7 @@ export interface ReadDisplayCurriculumMaterialResult {
   readonly manifestRevision: string;
   readonly document: CurriculumMaterialDocument;
   readonly display: CurriculumMaterialDisplayProjection;
-  readonly displayProjection: "structured_readme" | "structured_instructions";
+  readonly displayProjection: "structured_readme" | "structured_instructions" | "pdf_text";
   readonly browserOnlyFoldCount: number;
 }
 
@@ -141,7 +149,7 @@ export interface ReadModelSafeCurriculumMaterialResult {
   readonly document: CurriculumMaterialDocument;
   /** Server-owned projection. This value must never be returned by an HTTP route. */
   readonly modelSafeMarkdown: string;
-  readonly modelProjection: "full_readme" | "spoiler_stripped_instructions";
+  readonly modelProjection: "full_readme" | "spoiler_stripped_instructions" | "local_pdf_text";
   readonly omittedProtectedBlocks: number;
 }
 
@@ -179,6 +187,7 @@ const DEFAULT_LIMITS: CurriculumMaterialLimits = Object.freeze({
 });
 
 const MAX_MATERIAL_IMAGE_BYTES = 16 * 1024 * 1024;
+const MAX_LOCAL_PDF_BYTES = 32 * 1024 * 1024;
 const MATERIAL_IMAGE_CONTENT_TYPES = new Map<string, string>([
   [".avif", "image/avif"],
   [".gif", "image/gif"],
@@ -235,6 +244,10 @@ type ReadableFileResult =
   | { readonly ok: true; readonly markdown: string; readonly byteLength: number }
   | { readonly ok: false; readonly reason: UnavailableMaterialReason };
 
+type ReadableBytesResult =
+  | { readonly ok: true; readonly bytes: Buffer; readonly byteLength: number }
+  | { readonly ok: false; readonly reason: UnavailableMaterialReason };
+
 interface ParsedMarkdownLink {
   readonly label: string;
   readonly target: string;
@@ -254,11 +267,11 @@ type ClassifiedTarget =
   | { readonly kind: "local"; readonly target: LocalTarget }
   | { readonly kind: "unavailable"; readonly reason: UnavailableMaterialReason };
 
-function hash(value: string): string {
+function hash(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function versionHash(value: string): string {
+function versionHash(value: string | Uint8Array): string {
   return `sha256:${hash(value)}`;
 }
 
@@ -286,6 +299,9 @@ function documentClassification(relativePath: string):
     }
   | undefined {
   const name = basename(relativePath);
+  if (/\.pdf$/iu.test(name)) {
+    return { kind: "learner_pdf", accessClassification: "tutor_readable" };
+  }
   if (name.toLowerCase() === "readme.md") {
     return { kind: "readme", accessClassification: "tutor_readable" };
   }
@@ -387,6 +403,19 @@ function decodeSummaryEntities(value: string): string {
 
 function instructionFoldSummary(rawSummary: string): string {
   return decodeSummaryEntities(rawSummary.replace(/<[^>]*>/gu, " "))
+    .normalize("NFKC")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+const SAFE_SUMMARY_INLINE_TAG = /^<\s*(\/?)\s*(strong|b|em|i|code|sup|small)\s*>$/iu;
+
+function instructionFoldSummaryMarkdown(rawSummary: string): string {
+  return decodeSummaryEntities(rawSummary.replace(/<[^>]*>/gu, (tag) => {
+    const match = SAFE_SUMMARY_INLINE_TAG.exec(tag);
+    if (!match) return " ";
+    return `<${match[1] ? "/" : ""}${match[2]!.toLowerCase()}>`;
+  }))
     .normalize("NFKC")
     .replace(/\s+/gu, " ")
     .trim();
@@ -834,8 +863,61 @@ function mergeAstRanges(ranges: readonly AstSourceRange[]): readonly AstSourceRa
   return Object.freeze(merged.map((range) => Object.freeze(range)));
 }
 
+/**
+ * Keep source offsets stable while preventing compact display-math forms from
+ * swallowing later raw HTML in remark-math. The browser performs the visible
+ * delimiter normalization; this mask exists only for structural HTML analysis.
+ */
+function maskEdgeFilledDisplayMath(markdown: string): string {
+  const mask = (value: string) => value.replace(/[^\r\n]/g, " ");
+  const lines = markdown.match(/[^\n]*(?:\n|$)/gu) ?? [];
+  const output = [...lines];
+  let fence: MarkdownFence | undefined;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (fence) {
+      if (closesFence(line, fence)) fence = undefined;
+      continue;
+    }
+    const openingFence = fenceAtLineStart(line);
+    if (openingFence) {
+      fence = openingFence;
+      continue;
+    }
+
+    const content = stripMarkdownContainerPrefixes(line).replace(/\r?\n$/u, "");
+    if (/^(?: {4}|\t)/u.test(content)) continue;
+    const singleLine = /^ {0,3}\$\$(.+?)\$\$[\t ]*$/u.exec(content);
+    if (singleLine?.[1] && !singleLine[1].includes("$$")) {
+      output[index] = mask(line);
+      continue;
+    }
+    const opening = /^ {0,3}\$\$(.+)$/u.exec(content);
+    if (!opening?.[1] || opening[1].includes("$$")) continue;
+
+    let closingIndex = -1;
+    for (let candidate = index + 1; candidate < lines.length; candidate += 1) {
+      const candidateLine = lines[candidate] ?? "";
+      if (fenceAtLineStart(candidateLine)) break;
+      const candidateContent = stripMarkdownContainerPrefixes(candidateLine)
+        .replace(/\r?\n$/u, "");
+      if (/^.*\$\$[\t ]*$/u.test(candidateContent)) {
+        closingIndex = candidate;
+        break;
+      }
+    }
+    if (closingIndex < 0) continue;
+    for (let candidate = index; candidate <= closingIndex; candidate += 1) {
+      output[candidate] = mask(lines[candidate] ?? "");
+    }
+    index = closingIndex;
+  }
+  return output.join("");
+}
+
 function analyzeMarkdownAst(markdown: string): AstMarkdownAnalysis {
-  const root = parseMarkdown(markdown);
+  const root = parseMarkdown(maskEdgeFilledDisplayMath(markdown));
   const discovered: AstSourceRange[] = [];
   visitMarkdownNodes(root, (node) => {
     if (node.type !== "html") return;
@@ -1091,7 +1173,7 @@ interface ParsedAstFold {
 
 function astTagIsMarkdownLiteral(markdown: string, tag: AstHtmlTag): boolean {
   const masked = markdown.split("");
-  visitMarkdownNodes(parseMarkdown(markdown), (node) => {
+  visitMarkdownNodes(parseMarkdown(maskEdgeFilledDisplayMath(markdown)), (node) => {
     if (node.type !== "link" && node.type !== "linkReference" && node.type !== "definition") {
       return;
     }
@@ -1130,7 +1212,7 @@ function astTagIsMarkdownLiteral(markdown: string, tag: AstHtmlTag): boolean {
     markdown.slice(tag.start, tag.end).replace(/[^\r\n]/g, " "),
     markdown.slice(tag.end),
   ].join("");
-  const root = parseMarkdown(neutralized);
+  const root = parseMarkdown(maskEdgeFilledDisplayMath(neutralized));
   let literal = false;
   visitMarkdownNodes(root, (node) => {
     if (
@@ -1349,6 +1431,7 @@ function projectMarkdownForBrowser(
     const inner = markdown.slice(opening.end, closing.start);
     const rawSummary = summaryMatch.rawSummary;
     const summary = instructionFoldSummary(rawSummary) || "Course note";
+    const summaryMarkdown = instructionFoldSummaryMarkdown(rawSummary) || "Course note";
     const contextIncluded = ancestorIncludedInContext && (
       !instructionDocument
       || learnerVisibleInstructionFold(markdown.slice(opening.start, opening.end), rawSummary)
@@ -1374,6 +1457,7 @@ function projectMarkdownForBrowser(
     folds.push(Object.freeze({
       foldId,
       summary,
+      summaryMarkdown,
       body,
       contextVisibility: contextIncluded ? "included" : "browser_only",
       // The previous safe projection flattened teaching folds, so keeping them
@@ -1630,6 +1714,30 @@ async function readBoundedRegularFile(
   maxDocumentBytes: number,
   remainingTotalBytes: number,
 ): Promise<ReadableFileResult> {
+  const read = await readBoundedRegularBytes(
+    canonicalRoot,
+    relativePath,
+    maxDocumentBytes,
+    remainingTotalBytes,
+  );
+  if (!read.ok) return read;
+  try {
+    return {
+      ok: true,
+      markdown: new TextDecoder("utf-8", { fatal: true }).decode(read.bytes),
+      byteLength: read.byteLength,
+    };
+  } catch {
+    return { ok: false, reason: "unreadable" };
+  }
+}
+
+async function readBoundedRegularBytes(
+  canonicalRoot: string,
+  relativePath: string,
+  maxFileBytes: number,
+  remainingTotalBytes: number,
+): Promise<ReadableBytesResult> {
   const segments = relativePath.split("/");
   let candidate = canonicalRoot;
   try {
@@ -1659,20 +1767,14 @@ async function readBoundedRegularFile(
     handle = await open(candidate, constants.O_RDONLY | constants.O_NOFOLLOW);
     const metadata = await handle.stat();
     if (!metadata.isFile()) return { ok: false, reason: "unreadable" };
-    if (metadata.size > maxDocumentBytes || metadata.size > remainingTotalBytes) {
+    if (metadata.size > maxFileBytes || metadata.size > remainingTotalBytes) {
       return { ok: false, reason: "byte_limit" };
     }
     const bytes = await handle.readFile();
-    if (bytes.byteLength > maxDocumentBytes || bytes.byteLength > remainingTotalBytes) {
+    if (bytes.byteLength > maxFileBytes || bytes.byteLength > remainingTotalBytes) {
       return { ok: false, reason: "byte_limit" };
     }
-    let markdown: string;
-    try {
-      markdown = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    } catch {
-      return { ok: false, reason: "unreadable" };
-    }
-    return { ok: true, markdown, byteLength: bytes.byteLength };
+    return { ok: true, bytes, byteLength: bytes.byteLength };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ELOOP") return { ok: false, reason: "symlink" };
@@ -1716,16 +1818,34 @@ function manifestRevision(
   );
 }
 
+function localPdfMarkdown(extraction: PdfTextExtraction, title: string): string {
+  const pages = extraction.pages.map(({ pageNumber, text }) => [
+    `## Page ${pageNumber}`,
+    "",
+    text || "_No extractable text was found on this page._",
+  ].join("\n")).join("\n\n");
+  return [
+    `# ${escapeMarkdownInline(title)}`,
+    "",
+    "> Local curriculum PDF. This deterministic text view preserves PDF page order for reading and tutor retrieval.",
+    "",
+    pages,
+    "",
+  ].join("\n");
+}
+
 /**
  * Builds a read-only, learner-visible Markdown graph rooted at a section README.
  * It never fetches links, returns filesystem paths, or renders Markdown/HTML.
  */
 export class CurriculumMaterialService {
   private readonly limits: CurriculumMaterialLimits;
+  private readonly pdfMarkdownByHash = new Map<string, Promise<string>>();
 
   public constructor(
     private readonly aisbRoot: string,
     limits: Partial<CurriculumMaterialLimits> = {},
+    private readonly pdfTextExtractor: PdfTextExtractor = new PopplerPdfTextExtractor(),
   ) {
     this.limits = validateLimits(limits);
   }
@@ -1734,23 +1854,47 @@ export class CurriculumMaterialService {
     return (await this.buildManifest(sectionId)).publicManifest;
   }
 
+  private async projectLocalPdf(bytes: Buffer, filename: string): Promise<string> {
+    const contentHash = versionHash(bytes);
+    const existing = this.pdfMarkdownByHash.get(contentHash);
+    if (existing) return await existing;
+    const projection = this.pdfTextExtractor
+      .extract(bytes, new AbortController().signal)
+      .then((extraction) => localPdfMarkdown(extraction, filename.replace(/\.pdf$/iu, "")));
+    this.pdfMarkdownByHash.set(contentHash, projection);
+    try {
+      return await projection;
+    } catch (error) {
+      this.pdfMarkdownByHash.delete(contentHash);
+      throw error;
+    }
+  }
+
   public async readForDisplay(
     input: ReadCurriculumMaterialInput,
   ): Promise<ReadDisplayCurriculumMaterialResult> {
     const { internal, selected } = await this.resolveRead(input);
-    const projected = projectCurriculumMarkdownForBrowser(
-      selected.markdown,
-      selected.publicDocument.kind !== "readme",
-    );
+    const pdf = selected.publicDocument.kind === "learner_pdf";
+    const projected = pdf
+      ? Object.freeze({
+          display: Object.freeze({ markdown: selected.markdown, folds: Object.freeze([]) }),
+          browserOnlyFoldCount: 0,
+        })
+      : projectCurriculumMarkdownForBrowser(
+          selected.markdown,
+          selected.publicDocument.kind !== "readme",
+        );
     return Object.freeze({
       audience: "browser_display",
       sectionId: input.sectionId,
       manifestRevision: internal.publicManifest.revision,
       document: publicDocument(selected.publicDocument),
       display: projected.display,
-      displayProjection: selected.publicDocument.kind === "readme"
-        ? "structured_readme"
-        : "structured_instructions",
+      displayProjection: pdf
+        ? "pdf_text"
+        : selected.publicDocument.kind === "readme"
+          ? "structured_readme"
+          : "structured_instructions",
       browserOnlyFoldCount: projected.browserOnlyFoldCount,
     });
   }
@@ -1810,7 +1954,9 @@ export class CurriculumMaterialService {
     const { internal, selected } = await this.resolveRead(input);
     const projection = selected.publicDocument.kind === "readme"
       ? { markdown: stripRawHtmlMarkdown(selected.markdown), omittedProtectedBlocks: 0 }
-      : spoilerStripInstructionMarkdown(selected.markdown);
+      : selected.publicDocument.kind === "learner_pdf"
+        ? { markdown: selected.markdown, omittedProtectedBlocks: 0 }
+        : spoilerStripInstructionMarkdown(selected.markdown);
     return Object.freeze({
       audience: "model_context",
       sectionId: input.sectionId,
@@ -1819,7 +1965,9 @@ export class CurriculumMaterialService {
       modelSafeMarkdown: projection.markdown,
       modelProjection: selected.publicDocument.kind === "readme"
         ? "full_readme"
-        : "spoiler_stripped_instructions",
+        : selected.publicDocument.kind === "learner_pdf"
+          ? "local_pdf_text"
+          : "spoiler_stripped_instructions",
       omittedProtectedBlocks: projection.omittedProtectedBlocks,
     });
   }
@@ -1898,28 +2046,55 @@ export class CurriculumMaterialService {
       if (!classification || protectedPath(relativePath)) {
         return { reason: classification ? "protected" : "not_learner_markdown" };
       }
-      const read = await readBoundedRegularFile(
-        canonicalRoot,
-        relativePath,
-        this.limits.maxDocumentBytes,
-        this.limits.maxTotalBytes - totalBytes,
-      );
-      if (!read.ok) {
-        if (read.reason === "byte_limit") truncated = true;
-        if (rootDocument) {
-          throw new CurriculumMaterialError(
-            "root_document_unavailable",
-            404,
-            "The section README is not an available regular learner document",
+      let markdown: string;
+      let contentHash: string;
+      let byteLength: number;
+      if (classification.kind === "learner_pdf") {
+        const read = await readBoundedRegularBytes(
+            canonicalRoot,
+            relativePath,
+            MAX_LOCAL_PDF_BYTES,
+            this.limits.maxTotalBytes - totalBytes,
           );
+        if (!read.ok) {
+          if (read.reason === "byte_limit") truncated = true;
+          return { reason: read.reason };
         }
-        return { reason: read.reason };
+        try {
+          markdown = await this.projectLocalPdf(read.bytes, basename(relativePath));
+        } catch {
+          return { reason: "unreadable" };
+        }
+        contentHash = versionHash(read.bytes);
+        byteLength = read.byteLength;
+      } else {
+        const read = await readBoundedRegularFile(
+            canonicalRoot,
+            relativePath,
+            this.limits.maxDocumentBytes,
+            this.limits.maxTotalBytes - totalBytes,
+          );
+        if (!read.ok) {
+          if (read.reason === "byte_limit") truncated = true;
+          if (rootDocument) {
+            throw new CurriculumMaterialError(
+              "root_document_unavailable",
+              404,
+              "The section README is not an available regular learner document",
+            );
+          }
+          return { reason: read.reason };
+        }
+        markdown = read.markdown;
+        contentHash = versionHash(markdown);
+        byteLength = read.byteLength;
       }
-
-      totalBytes += read.byteLength;
+      totalBytes += byteLength;
       const modelSafeDocumentMarkdown = classification.kind === "readme"
-        ? stripRawHtmlMarkdown(read.markdown)
-        : spoilerStripInstructionMarkdown(read.markdown).markdown;
+        ? stripRawHtmlMarkdown(markdown)
+        : classification.kind === "learner_pdf"
+          ? markdown
+          : spoilerStripInstructionMarkdown(markdown).markdown;
       const id = documentId(sectionId, relativePath);
       const document: MutableDocument = {
         documentId: id,
@@ -1928,27 +2103,31 @@ export class CurriculumMaterialService {
         title: titleFromMarkdown(modelSafeDocumentMarkdown, basename(relativePath)),
         filename: basename(relativePath),
         ...classification,
-        contentHash: versionHash(read.markdown),
-        byteLength: read.byteLength,
+        contentHash,
+        byteLength,
         links: [],
         linksTruncated: false,
       };
       const internal: InternalDocument = {
         relativePath,
-        markdown: read.markdown,
+        markdown,
         publicDocument: document,
       };
       // Publish before following links so a cycle resolves to this document.
       documentsByPath.set(relativePath, internal);
       documentsById.set(id, internal);
 
-      const learnerVisibleLinks = markdownLinks(modelSafeDocumentMarkdown);
-      const discoveredLinks = classification.kind === "readme"
-        ? learnerVisibleLinks
-        : [
-            ...learnerVisibleLinks,
-            ...protectedArxivReferenceLinks(read.markdown, learnerVisibleLinks),
-          ];
+      const learnerVisibleLinks = classification.kind === "learner_pdf"
+        ? []
+        : markdownLinks(modelSafeDocumentMarkdown);
+      const discoveredLinks = classification.kind === "learner_pdf"
+        ? []
+        : classification.kind === "readme"
+          ? learnerVisibleLinks
+          : [
+              ...learnerVisibleLinks,
+              ...protectedArxivReferenceLinks(markdown, learnerVisibleLinks),
+            ];
       const perDocumentLinks = discoveredLinks.slice(0, this.limits.maxLinksPerDocument);
       if (perDocumentLinks.length < discoveredLinks.length) {
         document.linksTruncated = true;

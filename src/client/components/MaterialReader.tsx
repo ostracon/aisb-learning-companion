@@ -194,6 +194,7 @@ function MaterialProjection({
       omittedImageLabel={null}
       allowSingleDollarMath
       allowMermaidDiagrams
+      allowSafeInlineHtml
       renderLink={renderLink}
       renderImage={renderImage}
       renderBlockDirective={({ language, value }) => {
@@ -221,7 +222,14 @@ function MaterialProjection({
                 onFoldToggle(fold.foldId, !open, event.currentTarget);
               }}
             >
-              <span>{fold.summary}</span>
+              <SafeMarkdown
+                markdown={fold.summaryMarkdown ?? fold.summary}
+                headingIdPrefix={`material-fold-summary-${fold.foldId}-`}
+                inertLinkTitle="Disclosure-label links are inactive"
+                omittedImageLabel={null}
+                allowSafeInlineHtml
+                inline
+              />
             </summary>
             <div className="material-disclosure-body">
               <MaterialProjection
@@ -489,7 +497,13 @@ export function MaterialReader({
                 aria-current={document.documentId === activeDocumentId ? "page" : undefined}
                 onClick={() => onNavigate(documentRoute(dayId, manifest.sectionId, document.documentId))}
               >
-                <span>{document.kind === "readme" ? "Readme" : document.kind === "participant_instructions" ? "Exercises" : "Reading"}</span>
+                <span>{document.kind === "readme"
+                  ? "Readme"
+                  : document.kind === "participant_instructions"
+                    ? "Exercises"
+                    : document.kind === "learner_pdf"
+                      ? "PDF text"
+                      : "Reading"}</span>
                 <strong>{document.title}</strong>
               </button>
             ))}
@@ -507,7 +521,9 @@ export function MaterialReader({
                 ? "Section README"
                 : material.document.kind === "participant_instructions"
                   ? "Participant exercises"
-                  : "Linked reading"}
+                  : material.document.kind === "learner_pdf"
+                    ? "Local PDF · extracted text"
+                    : "Linked reading"}
             </span>
             {material.displayProjection === "structured_instructions" ? (
               <span className="material-projection-note">

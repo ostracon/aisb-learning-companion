@@ -308,6 +308,7 @@ export const NoteMarkdownEditor = memo(function NoteMarkdownEditor({
             activateLinks
             allowSingleDollarMath
             allowMermaidDiagrams
+            allowSafeInlineHtml
           />
         ) : (
           <p className="note-preview-empty">Nothing to preview yet.</p>
