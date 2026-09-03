@@ -307,6 +307,7 @@ export const NoteMarkdownEditor = memo(function NoteMarkdownEditor({
             omittedImageLabel="Image omitted from note preview"
             activateLinks
             allowSingleDollarMath
+            allowMermaidDiagrams
           />
         ) : (
           <p className="note-preview-empty">Nothing to preview yet.</p>

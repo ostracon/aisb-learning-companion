@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
 import { MarkdownCodeBlock } from "./MarkdownCodeBlock.js";
+import { MermaidDiagram } from "./MermaidDiagram.js";
 
 export interface MarkdownLinkRenderInput {
   readonly children: ReactNode;
@@ -42,6 +43,8 @@ export interface SafeMarkdownProps {
   readonly showRawHtmlSource?: boolean;
   /** Authored Markdown may use the conventional $…$ form for inline maths. */
   readonly allowSingleDollarMath?: boolean;
+  /** Authored Markdown may render fenced Mermaid source as a diagram. */
+  readonly allowMermaidDiagrams?: boolean;
 }
 
 function headingText(node: ReactNode): string {
@@ -267,6 +270,7 @@ export function SafeMarkdown({
   renderBlockDirective,
   showRawHtmlSource = false,
   allowSingleDollarMath = false,
+  allowMermaidDiagrams = false,
 }: SafeMarkdownProps) {
   const slugger = new MarkdownHeadingSlugger();
   let linkIndex = 0;
@@ -329,12 +333,16 @@ export function SafeMarkdown({
           const language = childProps?.className
             ?.match(/(?:^|\s)language-([^\s]+)/u)?.[1]
             ?.toLowerCase();
+          const value = headingText(childProps?.children ?? child).replace(/\n$/u, "");
           if (language && renderBlockDirective) {
             const rendered = renderBlockDirective({
               language,
-              value: headingText(childProps?.children ?? child).replace(/\n$/u, ""),
+              value,
             });
             if (rendered !== undefined) return rendered;
+          }
+          if (allowMermaidDiagrams && language === "mermaid") {
+            return <MermaidDiagram source={value} />;
           }
           return <MarkdownCodeBlock>{children}</MarkdownCodeBlock>;
         },

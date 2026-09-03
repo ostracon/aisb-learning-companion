@@ -7,6 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { highlightMarkdownCode } from "./MarkdownCodeBlock.js";
 import { normalizeMarkdownMathDelimiters, SafeMarkdown } from "./SafeMarkdown.js";
 
+vi.mock("./MermaidDiagram.js", () => ({
+  MermaidDiagram: ({ source }: { source: string }) => (
+    <figure aria-label="Mermaid diagram" data-testid="mermaid-diagram">{source}</figure>
+  ),
+}));
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -41,6 +47,29 @@ describe("SafeMarkdown", () => {
     expect(result.label).toBe("Mermaid");
     expect(result.html).toContain("&lt;script&gt;");
     expect(result.html).not.toContain("<script>");
+  });
+
+  it("renders Mermaid only when an authored surface opts in", () => {
+    const markdown = [
+      "```mermaid",
+      "flowchart LR",
+      "    A[Input] --> B[Output]",
+      "```",
+    ].join("\n");
+    const commonProps = {
+      markdown,
+      headingIdPrefix: "mermaid-heading-",
+      inertLinkTitle: "Links are inactive",
+      omittedImageLabel: null,
+    } as const;
+    const { container, rerender } = render(<SafeMarkdown {...commonProps} />);
+
+    expect(screen.queryByLabelText("Mermaid diagram")).toBeNull();
+    expect(container.querySelector(".markdown-code-block")?.textContent).toContain("flowchart LR");
+
+    rerender(<SafeMarkdown {...commonProps} allowMermaidDiagrams />);
+    expect(screen.getByLabelText("Mermaid diagram").textContent).toContain("A[Input] --> B[Output]");
+    expect(container.querySelector(".markdown-code-block")).toBeNull();
   });
 
   it("renders GFM while keeping HTML, links, and remote images inert", () => {

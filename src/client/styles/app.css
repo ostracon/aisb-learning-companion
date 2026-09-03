@@ -1747,6 +1747,52 @@ body {
   color: var(--danger);
 }
 
+.markdown-mermaid {
+  display: grid;
+  width: 100%;
+  max-width: 100%;
+  min-height: 7rem;
+  margin: 0.35rem 0 1.35rem;
+  place-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  color: var(--ink);
+  scrollbar-color: var(--divider-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.markdown-mermaid-svg {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  place-items: center;
+}
+
+.markdown-mermaid-svg svg {
+  display: block;
+  width: 100%;
+  min-width: 40rem;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.markdown-mermaid-loading {
+  color: var(--faint);
+  font: 600 0.68rem/1.4 var(--ui);
+  letter-spacing: 0.04em;
+}
+
+.markdown-mermaid-error {
+  margin: 0 0 1.05rem;
+}
+
+.markdown-mermaid-error > p {
+  margin: 0 0 0.45rem;
+  color: var(--danger);
+  font: 600 0.72rem/1.45 var(--ui);
+}
+
 .markdown-reader blockquote {
   margin-left: 0;
   padding-left: 1rem;
