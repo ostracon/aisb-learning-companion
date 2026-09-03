@@ -27,9 +27,6 @@ import type {
   LearningDayId,
   ScheduleEventView,
   ScheduleSnapshotResponse,
-  SaveTutorContinuityRequestBody,
-  TutorContinuitySelectionResponse,
-  TutorContinuitySummaryView,
   TutorSessionScopeRequest,
 } from "../shared/api.js";
 import { isMealScheduleEvent } from "../shared/schedule.js";
@@ -238,81 +235,6 @@ function record(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
-}
-
-/**
- * Reads the exact body of the first level-two `Reflection` section. Markdown
- * headings inside fenced code are ignored, and any real following heading ends
- * the section.
- */
-export function extractReflectionBody(markdown: string): string {
-  const lines = markdown.split(/\r?\n/);
-  let reflectionStart = -1;
-  let fence: { marker: "`" | "~"; length: number } | null = null;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      const sequence = fenceMatch[1]!;
-      const marker = sequence[0] as "`" | "~";
-      if (fence === null) {
-        fence = { marker, length: sequence.length };
-      } else if (fence.marker === marker && sequence.length >= fence.length) {
-        fence = null;
-      }
-      continue;
-    }
-    if (fence !== null) continue;
-
-    if (reflectionStart < 0) {
-      if (/^ {0,3}##[ \t]+Reflection(?:[ \t]+#*)?[ \t]*$/i.test(line)) {
-        reflectionStart = index + 1;
-      }
-      continue;
-    }
-
-    if (/^ {0,3}#{1,6}(?:[ \t]+|$)/.test(line)) {
-      return lines.slice(reflectionStart, index).join("\n").trim();
-    }
-  }
-
-  return reflectionStart < 0 ? "" : lines.slice(reflectionStart).join("\n").trim();
-}
-
-function isReflectionAutosaved(status: NoteSaveStatus): boolean {
-  return ["saved-locally", "saving-disk", "saved-disk", "offline", "conflict"].includes(status);
-}
-
-function parseContinuitySelection(
-  value: unknown,
-  targetDayId: LearningDayId,
-): TutorContinuitySelectionResponse {
-  const payload = record(value);
-  if (
-    payload?.target_day_id !== targetDayId
-    || typeof payload.total_text_bytes !== "number"
-    || !Array.isArray(payload.summaries)
-  ) {
-    throw new Error("The continuity service returned malformed data");
-  }
-  for (const candidate of payload.summaries) {
-    const summary = record(candidate);
-    if (
-      !summary
-      || typeof summary.summary_id !== "string"
-      || !isLearningDayId(typeof summary.source_day_id === "string" ? summary.source_day_id : undefined)
-      || typeof summary.source_scope_key !== "string"
-      || typeof summary.source_turn_id !== "string"
-      || typeof summary.approved_at !== "string"
-      || !Number.isFinite(Date.parse(summary.approved_at))
-      || typeof summary.content_hash !== "string"
-      || typeof summary.text !== "string"
-    ) {
-      throw new Error("The continuity service returned a malformed summary");
-    }
-  }
-  return value as TutorContinuitySelectionResponse;
 }
 
 async function apiError(response: Response, fallback: string): Promise<Error> {
@@ -681,156 +603,6 @@ export function DisclosureInspector({
           <summary>Context for next send</summary>
           <pre>{JSON.stringify(pending, null, 2)}</pre>
         </details>
-      </div>
-    </details>
-  );
-}
-
-type ContinuitySaveState = "idle" | "saving" | "saved" | "error";
-
-function continuitySummaryLabel(summary: TutorContinuitySummaryView): string {
-  const day = `Day ${summary.source_day_id.slice(3)}`;
-  if (summary.source_scope_key.startsWith("study:section:")) {
-    return `${day} · ${summary.source_scope_key.slice("study:section:".length)}`;
-  }
-  if (summary.source_scope_key.startsWith("event:")) return `${day} · calendar session`;
-  return `${day} · daily reflection`;
-}
-
-export function TutorContinuityControls({
-  reflection,
-  noteStatus,
-  completedTurnId,
-  summaries,
-  selectedSummaryIds,
-  loading,
-  loadError,
-  saveState,
-  saveError,
-  sending,
-  reflectionSaveBlockedReason = null,
-  onSave,
-  onToggle,
-}: {
-  readonly reflection: string;
-  readonly noteStatus: NoteSaveStatus;
-  readonly completedTurnId: string | null;
-  readonly summaries: readonly TutorContinuitySummaryView[];
-  readonly selectedSummaryIds: readonly string[];
-  readonly loading: boolean;
-  readonly loadError: string | null;
-  readonly saveState: ContinuitySaveState;
-  readonly saveError: string | null;
-  readonly sending: boolean;
-  readonly reflectionSaveBlockedReason?: string | null;
-  readonly onSave: () => void;
-  readonly onToggle: (summaryId: string, selected: boolean) => void;
-}) {
-  const selected = new Set(selectedSummaryIds);
-  const reflectionReady = reflection.length > 0;
-  const autosaved = isReflectionAutosaved(noteStatus);
-  const canSave = reflectionSaveBlockedReason === null
-    && completedTurnId !== null
-    && reflectionReady
-    && autosaved
-    && saveState !== "saving";
-  const saveGuidance = reflectionSaveBlockedReason !== null
-    ? reflectionSaveBlockedReason
-    : completedTurnId === null
-    ? "Complete a tutor exchange before approving a reflection."
-    : !reflectionReady
-      ? "Add a short reflection beneath the note’s ## Reflection heading."
-      : !autosaved
-        ? "Waiting for the current note to finish its local autosave."
-        : saveState === "saving"
-          ? "Saving the exact reflection to local continuity storage…"
-        : saveState === "saved"
-          ? "Saved locally. It will be available as continuity on a later day."
-          : saveError ?? "Saving creates a local learner-approved summary; it is not sent to a model.";
-
-  return (
-    <details className="continuity-controls">
-      <summary>
-        <span>Continuity</span>
-        <small>
-          {selectedSummaryIds.length > 0
-            ? `${selectedSummaryIds.length} selected for next send`
-            : "Local summaries · none selected"}
-        </small>
-      </summary>
-      <div className="continuity-body">
-        <section aria-labelledby="continuity-save-heading">
-          <div className="continuity-section-heading">
-            <h3 id="continuity-save-heading">Save this reflection</h3>
-            <button
-              className="text-button"
-              type="button"
-              disabled={!canSave}
-              onClick={onSave}
-            >
-              {saveState === "saving" ? "Saving…" : "Save ## Reflection locally"}
-            </button>
-          </div>
-          <p
-            className={`continuity-guidance ${saveState === "error" ? "failed" : ""}`.trim()}
-            role="status"
-            aria-live="polite"
-          >
-            {saveGuidance}
-          </p>
-        </section>
-
-        <section aria-labelledby="continuity-select-heading">
-          <h3 id="continuity-select-heading">Use earlier reflections</h3>
-          <p className="continuity-disclosure" id="continuity-send-disclosure">
-            Nothing is selected automatically. Checking a summary sends its exact text with your next tutor message to Codex/OpenAI.
-          </p>
-          {loading ? <p className="continuity-guidance" role="status">Loading local summaries…</p> : null}
-          {loadError ? <p className="continuity-guidance failed" role="alert">{loadError}</p> : null}
-          {!loading && !loadError && summaries.length === 0 ? (
-            <p className="continuity-guidance">No approved reflections from an earlier day yet.</p>
-          ) : null}
-          {summaries.length > 0 ? (
-            <ul className="continuity-summary-list">
-              {summaries.map((summary) => {
-                const isSelected = selected.has(summary.summary_id);
-                const atLimit = !isSelected && selectedSummaryIds.length >= 3;
-                return (
-                  <li key={summary.summary_id}>
-                    <label className="continuity-summary-choice">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        disabled={sending || atLimit}
-                        aria-describedby="continuity-send-disclosure"
-                        onChange={(event) => onToggle(summary.summary_id, event.currentTarget.checked)}
-                      />
-                      <span>
-                        <strong>{continuitySummaryLabel(summary)}</strong>
-                        <small>
-                          Approved {new Intl.DateTimeFormat("en-GB", {
-                            day: "numeric",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            timeZone: "Europe/London",
-                          }).format(new Date(summary.approved_at))}
-                        </small>
-                      </span>
-                    </label>
-                    <details className="continuity-summary-text">
-                      <summary>Read exact summary</summary>
-                      <pre>{summary.text}</pre>
-                    </details>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-          {selectedSummaryIds.length >= 3 ? (
-            <p className="continuity-guidance">Three summaries is the per-message limit.</p>
-          ) : null}
-        </section>
       </div>
     </details>
   );
@@ -1429,21 +1201,6 @@ function WorkspacePage({
       ? `day:${tutorScope.day_id}`
       : `event:${tutorScope.event_binding_id}`;
   }, [tutorScope]);
-  const [continuitySummaries, setContinuitySummaries] = useState<readonly TutorContinuitySummaryView[]>([]);
-  const [selectedContinuityIds, setSelectedContinuityIds] = useState<readonly string[]>([]);
-  const [continuityLoading, setContinuityLoading] = useState(false);
-  const [continuityLoadError, setContinuityLoadError] = useState<string | null>(null);
-  const [continuitySaveState, setContinuitySaveState] = useState<ContinuitySaveState>("idle");
-  const [continuitySaveError, setContinuitySaveError] = useState<string | null>(null);
-  const continuityLoadGeneration = useRef(0);
-  const continuitySaveGeneration = useRef(0);
-  const reflection = useMemo(() => extractReflectionBody(note.value), [note.value]);
-  const latestCompletedAssistant = useMemo(
-    () => messages.findLast(
-      (message) => message.role === "assistant" && message.status === "completed" && message.turn_id !== null,
-    ) ?? null,
-    [messages],
-  );
   const replyCount = messages.filter(
     (message) => message.role === "assistant" && message.status === "completed",
   ).length;
@@ -1463,49 +1220,6 @@ function WorkspacePage({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [assistantMode, messages.length, sending, tutorSession.error, tutorSession.loading, tutorScopeIdentity]);
-
-  useEffect(() => {
-    continuitySaveGeneration.current += 1;
-    setContinuitySaveState("idle");
-    setContinuitySaveError(null);
-  }, [reflection, tutorScopeIdentity]);
-
-  useEffect(() => {
-    const generation = ++continuityLoadGeneration.current;
-    const controller = new AbortController();
-    setSelectedContinuityIds([]);
-    setContinuityLoadError(null);
-
-    if (!tutorAvailable || tutorScopeIdentity === null) {
-      setContinuityLoading(false);
-      setContinuitySummaries([]);
-      return () => controller.abort();
-    }
-
-    setContinuityLoading(true);
-    void fetch(`/api/tutor/continuity?target_day_id=${encodeURIComponent(selectedDayId)}`, {
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) throw await apiError(response, "Could not read local continuity summaries");
-        return parseContinuitySelection(await response.json(), selectedDayId);
-      })
-      .then((selection) => {
-        if (generation !== continuityLoadGeneration.current) return;
-        setContinuitySummaries(selection.summaries);
-        setContinuityLoading(false);
-      })
-      .catch((reason: unknown) => {
-        if (controller.signal.aborted || generation !== continuityLoadGeneration.current) return;
-        setContinuitySummaries([]);
-        setContinuityLoading(false);
-        setContinuityLoadError(
-          reason instanceof Error ? reason.message : "Could not read local continuity summaries",
-        );
-      });
-
-    return () => controller.abort();
-  }, [selectedDayId, tutorAvailable, tutorScopeIdentity]);
 
   const syncToNow = () => {
     const entryId = (window.history.state?.aisbHistoryEntryId as string | undefined) ?? crypto.randomUUID();
@@ -1581,69 +1295,6 @@ function WorkspacePage({
     dispatch({ type: "toggle-study-notes" });
   };
 
-  const toggleContinuitySummary = (summaryId: string, selected: boolean) => {
-    if (sending) return;
-    setSelectedContinuityIds((current) => {
-      if (!selected) return current.filter((candidate) => candidate !== summaryId);
-      if (
-        current.includes(summaryId)
-        || current.length >= 3
-        || !continuitySummaries.some((summary) => summary.summary_id === summaryId)
-      ) {
-        return current;
-      }
-      return [...current, summaryId];
-    });
-  };
-
-  const saveContinuityReflection = () => {
-    const sourceTurnId = latestCompletedAssistant?.turn_id;
-    const sourceScope = tutorScope;
-    if (
-      sourceScope === null
-      || sourceTurnId === null
-      || sourceTurnId === undefined
-      || reflection.length === 0
-      || !isReflectionAutosaved(note.status)
-      || (isStudy && studyNoteOverride.noteId !== null)
-      || continuitySaveState === "saving"
-    ) {
-      return;
-    }
-
-    const generation = ++continuitySaveGeneration.current;
-    const request: SaveTutorContinuityRequestBody = {
-      source_scope: sourceScope,
-      source_turn_id: sourceTurnId,
-      text: reflection,
-    };
-    setContinuitySaveState("saving");
-    setContinuitySaveError(null);
-    void fetch("/api/tutor/continuity", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
-    })
-      .then(async (response) => {
-        if (!response.ok) throw await apiError(response, "Could not save the reflection locally");
-        const saved = record(await response.json());
-        if (typeof saved?.summary_id !== "string" || saved.source_turn_id !== sourceTurnId) {
-          throw new Error("The continuity service returned malformed save data");
-        }
-      })
-      .then(() => {
-        if (generation !== continuitySaveGeneration.current) return;
-        setContinuitySaveState("saved");
-      })
-      .catch((reason: unknown) => {
-        if (generation !== continuitySaveGeneration.current) return;
-        setContinuitySaveState("error");
-        setContinuitySaveError(
-          reason instanceof Error ? reason.message : "Could not save the reflection locally",
-        );
-      });
-  };
-
   const sendTutorMessage = (learnerText: string) => {
     if (!learnerText.trim() || tutorEntryLocked || !tutorCanSend) return;
     if (isStudy && (selectedSection === null || studyMaterialContext === null)) return;
@@ -1671,26 +1322,9 @@ function WorkspacePage({
           history_entry_id: ensureHistoryEntryId(),
           active_tab: "notes" as const,
         };
-    const continuityById = new Map(
-      continuitySummaries.map((summary) => [summary.summary_id, summary]),
-    );
-    const continuityForTurn = selectedContinuityIds.map((summaryId) =>
-      continuityById.get(summaryId),
-    );
-    if (continuityForTurn.some((summary) => summary === undefined)) {
-      setContinuityLoadError(
-        "A selected continuity summary is no longer available. Reload this page and review it again.",
-      );
-      return;
-    }
-    const continuitySelectionsForTurn = continuityForTurn.map((summary) => ({
-      summary_id: summary!.summary_id,
-      content_hash: summary!.content_hash,
-    }));
-    const continuityIdsForTurn = continuitySelectionsForTurn.map(({ summary_id }) => summary_id);
     void tutorSession.send({
       message: learnerText,
-      continuity_summaries: continuitySelectionsForTurn,
+      continuity_summaries: [],
       request_ids: requestIds,
       note_draft: {
         note_id: noteId,
@@ -1698,13 +1332,7 @@ function WorkspacePage({
         base_revision: note.baseRevision,
         save_status: note.status,
       },
-    })
-      .then((recorded) => {
-        if (!recorded) return;
-        setSelectedContinuityIds((current) => current.filter(
-          (summaryId) => !continuityIdsForTurn.includes(summaryId),
-        ));
-      });
+    });
   };
 
   const abandonUncertainTutorMessage = () => {
@@ -2429,23 +2057,6 @@ function WorkspacePage({
                   ) : null}
                 </section>
               ) : null}
-              <TutorContinuityControls
-                reflection={reflection}
-                noteStatus={note.status}
-                completedTurnId={latestCompletedAssistant?.turn_id ?? null}
-                summaries={continuitySummaries}
-                selectedSummaryIds={selectedContinuityIds}
-                loading={continuityLoading}
-                loadError={continuityLoadError}
-                saveState={continuitySaveState}
-                saveError={continuitySaveError}
-                sending={sending || tutorSession.activeTurn !== null}
-                reflectionSaveBlockedReason={isStudy && studyNoteOverride.noteId !== null
-                  ? "Switch back to this section’s note before saving a reflection for this tutor thread."
-                  : null}
-                onSave={saveContinuityReflection}
-                onToggle={toggleContinuitySummary}
-              />
               <DisclosureInspector disclosure={tutorSession.lastTurnResponse?.disclosure ?? null} pending={{
                   state: "pending next send",
                   context_mode: viewMode,
@@ -2462,15 +2073,6 @@ function WorkspacePage({
                   aisb_root: "<aisb-root>",
                   section_paths: sections.map((section: CurriculumSectionView) => section.sourcePath),
                   note_context: "exact live draft will be frozen at Send",
-                  continuity_summaries: selectedContinuityIds.map((summaryId) => {
-                    const summary = continuitySummaries.find(
-                      (candidate) => candidate.summary_id === summaryId,
-                    );
-                    return {
-                      summary_id: summaryId,
-                      content_hash: summary?.content_hash ?? "summary changed or unavailable",
-                    };
-                  }),
                 }} />
               <TutorComposer
                 ref={tutorComposerRef}

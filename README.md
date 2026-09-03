@@ -223,7 +223,7 @@ request.
 The assistant first receives a small map of that day's schedule, sections,
 outcomes, progress, and available sources. It can then search and read bounded
 parts of that day's notes, learner-visible curriculum, prepared HTML/PDF text,
-prior tutor excerpts, advisory review summaries, and approved continuity. Tool
+prior tutor excerpts, and advisory review summaries. Tool
 results include citations and provenance. The server fixes the day scope and
 accepts only opaque resource IDs; arbitrary paths, URLs, protected folds,
 solutions, and code-answer files are not available to this review.
@@ -281,7 +281,8 @@ Important paths include:
   note snapshots, preserved conflicts, and revision journals;
 - `schedule/schedule.json` — the editable imported schedule;
 - `progress/` — checked learning outcomes and progress state;
-- `continuity/` — learner-approved continuity summaries;
+- `continuity/` — legacy summaries created by older Companion releases; they
+  remain recoverable in backups but are no longer exposed in Tutor;
 - `tutor/sessions/sessions.jsonl` — the inspectable tutor, manager, and
   whole-day-review transcript;
 - `review/` — review-session state;

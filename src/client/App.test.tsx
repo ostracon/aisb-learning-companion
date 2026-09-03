@@ -4,17 +4,14 @@ import { act, cleanup, render, renderHook, screen } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { TutorContinuitySummaryView } from "../shared/api.js";
 import {
   DisclosureInspector,
-  extractReflectionBody,
   NoteSaveControls,
   shouldRestoreUncertainTutorText,
   studyDayTargetFor,
   studyNavigationDays,
   TutorComposer,
   tutorComposerStorageKey,
-  TutorContinuityControls,
   uncertainTutorComposerAction,
   useScopedComposerDraft,
 } from "./App.js";
@@ -348,157 +345,5 @@ describe("DisclosureInspector", () => {
     expect(screen.getByText("Raw disclosure manifest")).toBeTruthy();
     expect(screen.getByText("Context for next send")).toBeTruthy();
     expect(screen.getByText(/day0-foundations/)).toBeTruthy();
-  });
-});
-
-describe("extractReflectionBody", () => {
-  it("returns the reflection body only, stopping at the next Markdown heading", () => {
-    expect(extractReflectionBody([
-      "# Session note",
-      "",
-      "## Reflection",
-      "I can now explain the boundary.",
-      "",
-      "A second paragraph.",
-      "",
-      "## Answers",
-      "Not part of the reflection.",
-    ].join("\n"))).toBe("I can now explain the boundary.\n\nA second paragraph.");
-  });
-
-  it("ignores heading-looking lines inside fenced code", () => {
-    expect(extractReflectionBody([
-      "## Reflection",
-      "Keep this.",
-      "```markdown",
-      "# This is code, not the next heading",
-      "```",
-      "Keep this too.",
-      "### Review",
-      "Stop here.",
-    ].join("\n"))).toBe([
-      "Keep this.",
-      "```markdown",
-      "# This is code, not the next heading",
-      "```",
-      "Keep this too.",
-    ].join("\n"));
-  });
-
-  it("does not treat a similarly named section as Reflection", () => {
-    expect(extractReflectionBody("## Reflections\nNothing approved here.")).toBe("");
-  });
-});
-
-describe("TutorContinuityControls", () => {
-  const summary: TutorContinuitySummaryView = {
-    summary_id: "day0-foundations",
-    source_day_id: "day0",
-    source_scope_key: "study:section:0.1-setup",
-    source_turn_id: "turn-0",
-    approved_at: "2026-08-28T16:30:00.000Z",
-    content_hash: "a".repeat(64),
-    text: "I can explain why the setup boundary matters.",
-  };
-
-  it("starts unchecked and explains the exact external disclosure before selection", async () => {
-    const user = userEvent.setup();
-    const toggle = vi.fn();
-    render(
-      <TutorContinuityControls
-        reflection="I understand the current lesson."
-        noteStatus="saved-disk"
-        completedTurnId="turn-current"
-        summaries={[summary]}
-        selectedSummaryIds={[]}
-        loading={false}
-        loadError={null}
-        saveState="idle"
-        saveError={null}
-        sending={false}
-        onSave={vi.fn()}
-        onToggle={toggle}
-      />,
-    );
-
-    expect(screen.getByText("Local summaries · none selected")).toBeTruthy();
-    expect(screen.getByText(/Nothing is selected automatically/).textContent).toContain(
-      "sends its exact text with your next tutor message to Codex/OpenAI",
-    );
-    const checkbox = screen.getByRole("checkbox", { name: /Day 0 · 0.1-setup/ });
-    expect((checkbox as HTMLInputElement).checked).toBe(false);
-    await user.click(checkbox);
-    expect(toggle).toHaveBeenCalledWith("day0-foundations", true);
-  });
-
-  it("allows local approval only when a reflection is autosaved after a completed reply", async () => {
-    const user = userEvent.setup();
-    const save = vi.fn();
-    const { rerender } = render(
-      <TutorContinuityControls
-        reflection="A useful reflection."
-        noteStatus="saving-local"
-        completedTurnId={null}
-        summaries={[]}
-        selectedSummaryIds={[]}
-        loading={false}
-        loadError={null}
-        saveState="idle"
-        saveError={null}
-        sending={false}
-        onSave={save}
-        onToggle={vi.fn()}
-      />,
-    );
-
-    expect(
-      (screen.getByRole("button", { name: "Save ## Reflection locally" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(screen.getByText("Complete a tutor exchange before approving a reflection.")).toBeTruthy();
-
-    rerender(
-      <TutorContinuityControls
-        reflection="A useful reflection."
-        noteStatus="saved-locally"
-        completedTurnId="turn-current"
-        summaries={[]}
-        selectedSummaryIds={[]}
-        loading={false}
-        loadError={null}
-        saveState="idle"
-        saveError={null}
-        sending={false}
-        onSave={save}
-        onToggle={vi.fn()}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "Save ## Reflection locally" }));
-    expect(save).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(/it is not sent to a model/i)).toBeTruthy();
-  });
-
-  it("does not approve a reference note reflection against the visible section's tutor thread", () => {
-    render(
-      <TutorContinuityControls
-        reflection="A reflection from an earlier topic."
-        noteStatus="saved-disk"
-        completedTurnId="turn-current"
-        summaries={[]}
-        selectedSummaryIds={[]}
-        loading={false}
-        loadError={null}
-        saveState="idle"
-        saveError={null}
-        sending={false}
-        reflectionSaveBlockedReason="Switch back to this section’s note before saving a reflection for this tutor thread."
-        onSave={vi.fn()}
-        onToggle={vi.fn()}
-      />,
-    );
-
-    expect(
-      (screen.getByRole("button", { name: "Save ## Reflection locally" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(screen.getByText(/Switch back to this section’s note/)).toBeTruthy();
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "aisb-learning-companion",
-  "version": "1.0.22",
+  "version": "1.0.23",
   "description": "Local-first learning companion for the AI Security Bootcamp.",
   "private": true,
   "repository": {
