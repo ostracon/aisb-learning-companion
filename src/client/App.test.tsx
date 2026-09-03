@@ -12,6 +12,7 @@ import {
   shouldRestoreUncertainTutorText,
   studyDayTargetFor,
   studyNavigationDays,
+  TutorComposer,
   tutorComposerStorageKey,
   TutorContinuityControls,
   uncertainTutorComposerAction,
@@ -262,6 +263,49 @@ describe("useScopedComposerDraft", () => {
 
     expect(view.result.current.value).toBe("still visible");
     expect(view.result.current.storageError).toMatch(/still held in memory/i);
+  });
+});
+
+describe("TutorComposer", () => {
+  it("keeps per-keystroke state inside the composer instead of rerendering its workspace parent", async () => {
+    const send = vi.fn();
+    let workspaceRenders = 0;
+
+    function WorkspaceHarness() {
+      workspaceRenders += 1;
+      return (
+        <div>
+          <div data-testid="expensive-workspace">Course document</div>
+          <TutorComposer
+            scopeKey="study:section:5.3"
+            tutorIsWorking={false}
+            unresolvedMessage={false}
+            tutorAvailable
+            tutorNoteReady
+            tutorCanSend
+            tutorEntryLocked={false}
+            settledSubmission={null}
+            onAcknowledgeSettledSubmission={vi.fn()}
+            onSend={send}
+          />
+        </div>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<WorkspaceHarness />);
+    const composer = screen.getByRole("textbox", { name: "Message the tutor" });
+
+    await user.type(composer, "three quick keys");
+
+    expect(workspaceRenders).toBe(1);
+    expect((composer as HTMLTextAreaElement).value).toBe("three quick keys");
+    expect(window.localStorage.getItem(
+      tutorComposerStorageKey("study:section:5.3"),
+    )).toBe("three quick keys");
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(send).toHaveBeenCalledWith("three quick keys");
   });
 });
 

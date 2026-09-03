@@ -1,4 +1,15 @@
-import { lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  forwardRef,
+  lazy,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   Link,
   Navigate,
@@ -55,7 +66,10 @@ import {
   createWorkspaceScrollCarryState,
   useWorkspaceScrollRestoration,
 } from "./hooks/use-workspace-scroll.js";
-import { useTutorSession } from "./hooks/use-tutor-session.js";
+import {
+  useTutorSession,
+  type SettledTutorSubmission,
+} from "./hooks/use-tutor-session.js";
 import { curriculumSectionsForTodaySelection } from "./curriculum/today-sections.js";
 import {
   materialHrefWithStudyNote,
@@ -480,6 +494,103 @@ export function useScopedComposerDraft(scopeKey: string | null): {
 export function tutorComposerStorageKey(scopeKey: string): string {
   return `aisb-companion:tutor-composer:${scopeKey}`;
 }
+
+export interface TutorComposerHandle {
+  readonly setValue: (value: string) => void;
+}
+
+interface TutorComposerProps {
+  readonly scopeKey: string | null;
+  readonly tutorIsWorking: boolean;
+  readonly unresolvedMessage: boolean;
+  readonly tutorAvailable: boolean;
+  readonly tutorNoteReady: boolean;
+  readonly tutorCanSend: boolean;
+  readonly tutorEntryLocked: boolean;
+  readonly settledSubmission: SettledTutorSubmission | null;
+  readonly onAcknowledgeSettledSubmission: (clientMessageId: string) => void;
+  readonly onSend: (learnerText: string) => void;
+}
+
+/**
+ * Owns its frequently-changing text locally so one keystroke cannot rerender
+ * the full workspace and reparse the selected course document.
+ */
+export const TutorComposer = memo(forwardRef<TutorComposerHandle, TutorComposerProps>(
+  function TutorComposer({
+    scopeKey,
+    tutorIsWorking,
+    unresolvedMessage,
+    tutorAvailable,
+    tutorNoteReady,
+    tutorCanSend,
+    tutorEntryLocked,
+    settledSubmission,
+    onAcknowledgeSettledSubmission,
+    onSend,
+  }, ref) {
+    const {
+      value: composer,
+      setValue: setComposer,
+      storageError,
+    } = useScopedComposerDraft(scopeKey);
+
+    useImperativeHandle(ref, () => ({ setValue: setComposer }), [setComposer]);
+
+    useEffect(() => {
+      if (settledSubmission === null) return;
+      if (settledSubmission.clearDraft && composer === settledSubmission.learnerText) {
+        setComposer("");
+      }
+      onAcknowledgeSettledSubmission(settledSubmission.clientMessageId);
+    }, [
+      composer,
+      onAcknowledgeSettledSubmission,
+      setComposer,
+      settledSubmission,
+    ]);
+
+    return (
+      <div className="composer">
+        {storageError ? (
+          <p className="composer-storage-error" role="alert">{storageError}</p>
+        ) : null}
+        <div className="composer-box">
+          <label className="sr-only" htmlFor="tutor-composer">Message the tutor</label>
+          <textarea
+            id="tutor-composer"
+            placeholder={tutorIsWorking
+              ? "Tutor is thinking…"
+              : unresolvedMessage
+                ? "Resolve the pending message before continuing."
+                : tutorAvailable && !tutorNoteReady
+                  ? "Preparing the selected note for Tutor…"
+                  : tutorCanSend
+                    ? "Ask for a nudge, explain your attempt, or review an answer under ## Questions…"
+                    : "Open a day or Study section to chat with its curriculum context."}
+            value={tutorEntryLocked ? "" : composer}
+            disabled={!tutorCanSend || tutorEntryLocked}
+            onChange={(event) => setComposer(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                onSend(composer);
+              }
+            }}
+          />
+          <button
+            className="send-button"
+            type="button"
+            disabled={!composer.trim() || tutorEntryLocked || !tutorCanSend}
+            onClick={() => onSend(composer)}
+          >
+            <span aria-hidden="true">→</span><span className="sr-only">Send</span>
+          </button>
+        </div>
+      </div>
+    );
+  },
+));
 
 export function shouldRestoreUncertainTutorText(
   result: AbandonUncertainTutorTurnResponseBody | false,
@@ -1007,6 +1118,7 @@ function WorkspacePage({
   const messageListRef = useRef<HTMLDivElement>(null);
   const messageTailRef = useRef<HTMLDivElement>(null);
   const keepMessageTailVisibleRef = useRef(true);
+  const tutorComposerRef = useRef<TutorComposerHandle>(null);
   const [schedule, setSchedule] = useState<ScheduleSnapshotResponse>(() => ({
     runtimeSchedule: data.runtimeSchedule,
     scheduleRevision: data.scheduleRevision,
@@ -1317,11 +1429,6 @@ function WorkspacePage({
       ? `day:${tutorScope.day_id}`
       : `event:${tutorScope.event_binding_id}`;
   }, [tutorScope]);
-  const {
-    value: composer,
-    setValue: setComposer,
-    storageError: composerStorageError,
-  } = useScopedComposerDraft(tutorScopeIdentity);
   const [continuitySummaries, setContinuitySummaries] = useState<readonly TutorContinuitySummaryView[]>([]);
   const [selectedContinuityIds, setSelectedContinuityIds] = useState<readonly string[]>([]);
   const [continuityLoading, setContinuityLoading] = useState(false);
@@ -1356,13 +1463,6 @@ function WorkspacePage({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [assistantMode, messages.length, sending, tutorSession.error, tutorSession.loading, tutorScopeIdentity]);
-
-  useEffect(() => {
-    const settled = tutorSession.settledSubmission;
-    if (settled === null) return;
-    if (settled.clearDraft && composer === settled.learnerText) setComposer("");
-    tutorSession.acknowledgeSettledSubmission(settled.clientMessageId);
-  }, [composer, setComposer, tutorSession.acknowledgeSettledSubmission, tutorSession.settledSubmission]);
 
   useEffect(() => {
     continuitySaveGeneration.current += 1;
@@ -1544,8 +1644,7 @@ function WorkspacePage({
       });
   };
 
-  const sendTutorMessage = () => {
-    const learnerText = composer;
+  const sendTutorMessage = (learnerText: string) => {
     if (!learnerText.trim() || tutorEntryLocked || !tutorCanSend) return;
     if (isStudy && (selectedSection === null || studyMaterialContext === null)) return;
     keepMessageTailVisibleRef.current = true;
@@ -1617,8 +1716,8 @@ function WorkspacePage({
         result,
         window.location.pathname === routeAtDecision,
       );
-      if (action === "restore") setComposer(unresolvedText);
-      else if (action === "clear") setComposer("");
+      if (action === "restore") tutorComposerRef.current?.setValue(unresolvedText);
+      else if (action === "clear") tutorComposerRef.current?.setValue("");
     });
   };
 
@@ -2373,38 +2472,19 @@ function WorkspacePage({
                     };
                   }),
                 }} />
-              <div className="composer">
-                {composerStorageError ? (
-                  <p className="composer-storage-error" role="alert">{composerStorageError}</p>
-                ) : null}
-                <div className="composer-box">
-                  <label className="sr-only" htmlFor="tutor-composer">Message the tutor</label>
-                  <textarea
-                    id="tutor-composer"
-                    placeholder={tutorIsWorking
-                      ? "Tutor is thinking…"
-                      : tutorSession.unresolvedMessage !== null
-                        ? "Resolve the pending message before continuing."
-                        : tutorAvailable && !tutorNoteReady
-                          ? "Preparing the selected note for Tutor…"
-                        : tutorCanSend
-                          ? "Ask for a nudge, explain your attempt, or review an answer under ## Questions…"
-                          : "Open a day or Study section to chat with its curriculum context."}
-                    value={tutorEntryLocked ? "" : composer}
-                    disabled={!tutorCanSend || tutorEntryLocked}
-                    onChange={(event) => setComposer(event.currentTarget.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                        event.preventDefault();
-                        sendTutorMessage();
-                      }
-                    }}
-                  />
-                  <button className="send-button" type="button" disabled={!composer.trim() || tutorEntryLocked || !tutorCanSend} onClick={sendTutorMessage}>
-                    <span aria-hidden="true">→</span><span className="sr-only">Send</span>
-                  </button>
-                </div>
-              </div>
+              <TutorComposer
+                ref={tutorComposerRef}
+                scopeKey={tutorScopeIdentity}
+                tutorIsWorking={tutorIsWorking}
+                unresolvedMessage={tutorSession.unresolvedMessage !== null}
+                tutorAvailable={tutorAvailable}
+                tutorNoteReady={tutorNoteReady}
+                tutorCanSend={tutorCanSend}
+                tutorEntryLocked={tutorEntryLocked}
+                settledSubmission={tutorSession.settledSubmission}
+                onAcknowledgeSettledSubmission={tutorSession.acknowledgeSettledSubmission}
+                onSend={sendTutorMessage}
+              />
           </div>
           <div className="assistant-mode-content review-mode-content" hidden={assistantMode !== "review"}>
             <ReviewPanel
