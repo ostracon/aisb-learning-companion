@@ -4,6 +4,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import type { LearningDayId } from "../../shared/api.js";
 import type { DayReviewMode, DayReviewSessionView } from "../../shared/day-review.js";
 import type { ManagerSessionMessageView, ManagerTurnResponse } from "../../shared/manager.js";
+import { renderGeneratedVisualImage } from "./GeneratedVisualImage.js";
 import { SafeMarkdown } from "./SafeMarkdown.js";
 import "../styles/manager.css";
 import "../styles/day-review.css";
@@ -324,6 +325,7 @@ export function DayReviewPage() {
                       headingIdPrefix={`day-review-${message.messageId}-`}
                       inertLinkTitle="Use the cited source in the workspace or prepared-reference view."
                       omittedImageLabel="Day review image omitted"
+                      renderImage={(input) => renderGeneratedVisualImage(input, "Day review image omitted")}
                       showRawHtmlSource
                     />
                   ) : <p>{message.text}</p>}

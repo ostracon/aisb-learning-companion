@@ -44,7 +44,7 @@ import type { VisualAidService } from "../images/service.js";
 import {
   createLearningVisualToolHandler,
   isLearningVisualToolCall,
-  learningVisualToolSpec,
+  learningVisualToolSpecs,
 } from "../images/tool.js";
 import type { DayPreparedReferenceSource } from "../manager/prepared-context-source.js";
 import type { MarkdownNoteStore } from "../notes/store.js";
@@ -83,7 +83,7 @@ import { TutorThreadBindingStore } from "./thread-binding-store.js";
 
 const TUTOR_MODEL = "gpt-5.6-sol";
 const TUTOR_BINDING_CAS_ATTEMPTS = 4;
-export const TUTOR_TOOLSET_VERSION = "tutor-tools-v2";
+export const TUTOR_TOOLSET_VERSION = "tutor-tools-v3";
 
 type TutorPreparedReferenceSource = ScopedPreparedReferenceContextSource
   & Partial<DayPreparedReferenceSource>;
@@ -434,7 +434,7 @@ export interface TutorServiceDependencies {
   /** Optional deterministic recovery seam; production resolves the verified Codex stack. */
   readonly recoveryGateway?: TutorTurnRecoveryGatewayPort;
   readonly turnAdmission?: TutorTurnAdmission;
-  readonly visualAidService?: Pick<VisualAidService, "preview">;
+  readonly visualAidService?: Pick<VisualAidService, "preview" | "generate">;
 }
 
 export interface ReconcilePendingTutorTurnsInput {
@@ -817,7 +817,7 @@ export class TutorService {
   readonly #recoveryGateway: TutorTurnRecoveryGatewayPort | null;
   readonly #threadResolutionByScope = new Map<string, Promise<TutorThreadBinding>>();
   readonly #turnAdmission: TutorTurnAdmission;
-  readonly #visualAidService: Pick<VisualAidService, "preview"> | null;
+  readonly #visualAidService: Pick<VisualAidService, "preview" | "generate"> | null;
   readonly #preparedReferenceScopesByThread = new Map<
     string,
     Readonly<{ readonly token: symbol; readonly sectionIds: readonly string[] }>
@@ -1545,7 +1545,7 @@ export class TutorService {
             (threadId) => this.#preparedReferenceScopesByThread.get(threadId)?.sectionIds ?? null,
           );
       const dynamicTools = [
-        ...(this.#visualAidService === null ? [] : [learningVisualToolSpec]),
+        ...(this.#visualAidService === null ? [] : learningVisualToolSpecs),
         ...(preparedReferenceRetrieval === null ? [] : preparedReferenceToolSpecs),
       ];
       const dynamicToolHandler = dynamicTools.length === 0

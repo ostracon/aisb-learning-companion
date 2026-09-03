@@ -2757,6 +2757,16 @@ body {
   background: var(--divider-strong);
 }
 
+.assistant-generated-visual {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0.7rem 0;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  background: var(--paper);
+}
+
 .tutor-message-citations {
   margin-top: 0.8rem;
   padding-top: 0.55rem;

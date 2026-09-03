@@ -90,4 +90,24 @@ describe("TutorMessageContent", () => {
     expect(screen.queryByText("Unsafe local file")).toBeNull();
     expect(screen.queryByText("Credential-bearing")).toBeNull();
   });
+
+  it("shows saved application visuals inline while keeping remote images inert", () => {
+    const { container } = render(
+      <TutorMessageContent message={message("assistant", [
+        "![Attention projection](/api/visuals/visual_12345678-1234-1234-1234-123456789abc/image)",
+        "",
+        "![Untrusted diagram](https://example.test/diagram.png)",
+      ].join("\n"))} />,
+    );
+
+    const visual = screen.getByRole("img", { name: "Attention projection" });
+    expect(visual.getAttribute("src")).toBe(
+      "/api/visuals/visual_12345678-1234-1234-1234-123456789abc/image",
+    );
+    expect(visual.classList.contains("assistant-generated-visual")).toBe(true);
+    expect(container.textContent).toContain(
+      "Remote image omitted; use Useful visuals for generated learning aids: Untrusted diagram",
+    );
+    expect(container.querySelector('img[src="https://example.test/diagram.png"]')).toBeNull();
+  });
 });

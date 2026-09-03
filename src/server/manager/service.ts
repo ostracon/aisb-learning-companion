@@ -24,7 +24,7 @@ import { sanitizedChildEnvironment, type RuntimeConfig } from "../config.js";
 import type { VisualAidService } from "../images/service.js";
 import {
   createLearningVisualToolHandler,
-  learningVisualToolSpec,
+  learningVisualToolSpecs,
   VISUAL_TOOLSET_VERSION,
 } from "../images/tool.js";
 import type { DayReviewRetrievalService } from "../day-review/retrieval-service.js";
@@ -165,7 +165,7 @@ export class ManagerService {
     private readonly sessionStore: ManagerSessionStorePort,
     private readonly bindingStore: ManagerBindingStorePort = new TutorThreadBindingStore(config.stateRoot),
     private readonly connectGateway?: () => Promise<ManagerStack>,
-    private readonly visualAidService: Pick<VisualAidService, "preview"> | null = null,
+    private readonly visualAidService: Pick<VisualAidService, "preview" | "generate"> | null = null,
     private readonly options: ManagerServiceOptions = {},
   ) {
     this.#dayId = options.dayId ?? null;
@@ -511,7 +511,7 @@ export class ManagerService {
           defaultModel: MANAGER_MODEL,
           defaultEffort: MANAGER_EFFORT,
           dynamicTools: [
-            ...(this.visualAidService === null ? [] : [learningVisualToolSpec]),
+            ...(this.visualAidService === null ? [] : learningVisualToolSpecs),
             ...(this.#dayId === null ? [] : dayReviewToolSpecs),
           ],
         }),

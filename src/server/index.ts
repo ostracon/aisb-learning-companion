@@ -164,7 +164,7 @@ const tutorService = new TutorService(
   tutorSessionLogStore,
   continuitySummaryStore,
   preparedReferenceContextSource,
-  { visualAidService },
+  config.imageGenerationAvailable ? { visualAidService } : {},
 );
 const managerService = new ManagerService(
   config,
@@ -181,7 +181,7 @@ const managerService = new ManagerService(
   tutorSessionLogStore,
   tutorThreadBindingStore,
   undefined,
-  visualAidService,
+  config.imageGenerationAvailable ? visualAidService : null,
 );
 const dayReviewRetrievalService = new DayReviewRetrievalService({
   schedule: scheduleStore,
@@ -208,7 +208,7 @@ const dayReviewServices = new Map(learningDayIds.map((dayId) => [
     tutorSessionLogStore,
     tutorThreadBindingStore,
     undefined,
-    visualAidService,
+    config.imageGenerationAvailable ? visualAidService : null,
     { dayId, dayReviewRetrieval: dayReviewRetrievalService },
   ),
 ] as const));

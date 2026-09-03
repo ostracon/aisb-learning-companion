@@ -1,4 +1,5 @@
 import type { TutorSessionMessageView } from "../../shared/api.js";
+import { renderGeneratedVisualImage } from "./GeneratedVisualImage.js";
 import { SafeMarkdown } from "./SafeMarkdown.js";
 
 function safeCitationUrl(value: string): string | null {
@@ -32,6 +33,10 @@ export function TutorMessageContent({ message }: { readonly message: TutorSessio
         headingIdPrefix={`tutor-${message.message_id}-`}
         inertLinkTitle="Tutor-authored links are inactive; use the verified sources below."
         omittedImageLabel="Remote image omitted; use Useful visuals for generated learning aids"
+        renderImage={(input) => renderGeneratedVisualImage(
+          input,
+          "Remote image omitted; use Useful visuals for generated learning aids",
+        )}
         showRawHtmlSource
       />
       {citations.length > 0 ? (

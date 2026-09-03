@@ -6,6 +6,7 @@ import type {
   ManagerSessionView,
   ManagerTurnResponse,
 } from "../../shared/manager.js";
+import { renderGeneratedVisualImage } from "./GeneratedVisualImage.js";
 import { SafeMarkdown } from "./SafeMarkdown.js";
 import { UtilityBackLink } from "./UtilityBackLink.js";
 import "../styles/manager.css";
@@ -296,6 +297,7 @@ export function ManagerPage() {
                       headingIdPrefix={`manager-${message.messageId}-`}
                       inertLinkTitle="Manager links are shown as text; open sources from the workspace."
                       omittedImageLabel="Manager image omitted"
+                      renderImage={(input) => renderGeneratedVisualImage(input, "Manager image omitted")}
                       showRawHtmlSource
                     />
                   ) : <p>{message.text}</p>}

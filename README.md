@@ -179,11 +179,14 @@ into this repository.
 
 The app does not load `.env` files automatically.
 
-The tutor and learning manager can prepare a structured visual brief when an
-image would genuinely help explain a relationship. Open **Useful visuals** to
-review that brief and the exact prompt. The assistant cannot generate an image
-or incur image-generation usage by itself: you must select **Generate this
-visual** separately.
+When you explicitly ask the tutor or learning manager to make an image, that
+request authorises one image-generation call. The assistant generates the image,
+saves it locally, and shows it in the conversation. If the assistant merely
+suggests that a visual could help, it prepares a structured brief instead; open
+**Useful visuals** to review the exact prompt and decide whether to generate it.
+
+The Companion calls the OpenAI Images API directly with `gpt-image-2`; the
+Codex app's built-in image tool is not exposed to this standalone local server.
 
 ## Preparing external references
 
