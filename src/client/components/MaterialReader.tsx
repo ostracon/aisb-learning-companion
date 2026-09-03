@@ -192,6 +192,7 @@ function MaterialProjection({
       headingIdPrefix={headingIdPrefix}
       inertLinkTitle="This repository target is unavailable"
       omittedImageLabel={null}
+      allowSingleDollarMath
       renderLink={renderLink}
       renderImage={renderImage}
       renderBlockDirective={({ language, value }) => {

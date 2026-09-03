@@ -317,6 +317,28 @@ describe("SafeMarkdown", () => {
     expect(container.querySelector(".katex")).toBeNull();
   });
 
+  it("renders conventional single-dollar maths when an authored surface opts in", () => {
+    const markdown = [
+      "Letting $g_1, \\ldots g_n$ denote the good-prompt vectors,",
+      "their average is $\\hat{g} = \\frac{1}{n} \\sum_{i=1}^n g_i$.",
+    ].join("\n");
+    const { container } = render(
+      <SafeMarkdown
+        markdown={markdown}
+        headingIdPrefix="course-math-heading-"
+        inertLinkTitle="Links are inactive"
+        omittedImageLabel={null}
+        allowSingleDollarMath
+      />,
+    );
+
+    const maths = [...container.querySelectorAll(".katex")];
+    expect(maths).toHaveLength(2);
+    expect(maths[0]?.querySelector("annotation")?.textContent).toBe("g_1, \\ldots g_n");
+    expect(maths[1]?.querySelector("annotation")?.textContent).toContain("\\hat{g}");
+    expect(container.textContent).not.toContain("$g_1");
+  });
+
   it("keeps fenced code exact inside Markdown containers", () => {
     const markdown = [
       "> ```text",

@@ -40,6 +40,8 @@ export interface SafeMarkdownProps {
   readonly renderBlockDirective?: (input: MarkdownBlockDirectiveInput) => ReactNode | undefined;
   /** Model output may show raw tag syntax as escaped text; content readers omit it. */
   readonly showRawHtmlSource?: boolean;
+  /** Authored Markdown may use the conventional $…$ form for inline maths. */
+  readonly allowSingleDollarMath?: boolean;
 }
 
 function headingText(node: ReactNode): string {
@@ -264,6 +266,7 @@ export function SafeMarkdown({
   renderImage,
   renderBlockDirective,
   showRawHtmlSource = false,
+  allowSingleDollarMath = false,
 }: SafeMarkdownProps) {
   const slugger = new MarkdownHeadingSlugger();
   let linkIndex = 0;
@@ -271,7 +274,7 @@ export function SafeMarkdown({
 
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
+      remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: allowSingleDollarMath }]]}
       rehypePlugins={[[rehypeKatex, {
         maxExpand: 1_000,
         maxSize: 50,
