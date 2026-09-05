@@ -46,6 +46,12 @@ import {
   isLearningVisualToolCall,
   learningVisualToolSpecs,
 } from "../images/tool.js";
+import type { LondonMaterialRetrievalService } from "../london-materials/service.js";
+import {
+  createLondonMaterialToolHandler,
+  isLondonMaterialToolCall,
+  londonMaterialToolSpecs,
+} from "../london-materials/tool.js";
 import type { DayPreparedReferenceSource } from "../manager/prepared-context-source.js";
 import type { MarkdownNoteStore } from "../notes/store.js";
 import type { ScheduleStore } from "../schedule/store.js";
@@ -83,7 +89,7 @@ import { TutorThreadBindingStore } from "./thread-binding-store.js";
 
 const TUTOR_MODEL = "gpt-5.6-sol";
 const TUTOR_BINDING_CAS_ATTEMPTS = 4;
-export const TUTOR_TOOLSET_VERSION = "tutor-tools-v3";
+export const TUTOR_TOOLSET_VERSION = "tutor-tools-v4";
 
 type TutorPreparedReferenceSource = ScopedPreparedReferenceContextSource
   & Partial<DayPreparedReferenceSource>;
@@ -435,6 +441,7 @@ export interface TutorServiceDependencies {
   readonly recoveryGateway?: TutorTurnRecoveryGatewayPort;
   readonly turnAdmission?: TutorTurnAdmission;
   readonly visualAidService?: Pick<VisualAidService, "preview" | "generate">;
+  readonly londonMaterialService?: LondonMaterialRetrievalService;
 }
 
 export interface ReconcilePendingTutorTurnsInput {
@@ -818,9 +825,14 @@ export class TutorService {
   readonly #threadResolutionByScope = new Map<string, Promise<TutorThreadBinding>>();
   readonly #turnAdmission: TutorTurnAdmission;
   readonly #visualAidService: Pick<VisualAidService, "preview" | "generate"> | null;
+  readonly #londonMaterialService: LondonMaterialRetrievalService | null;
   readonly #preparedReferenceScopesByThread = new Map<
     string,
-    Readonly<{ readonly token: symbol; readonly sectionIds: readonly string[] }>
+    Readonly<{
+      readonly token: symbol;
+      readonly sectionIds: readonly string[];
+      readonly dayId: LearningDayId;
+    }>
   >();
   readonly #turnResolutionAdmission = new TutorTurnResolutionAdmission();
   readonly #activeTurns = new TutorActiveTurnRegistry();
@@ -850,6 +862,7 @@ export class TutorService {
     this.#recoveryGateway = dependencies.recoveryGateway ?? null;
     this.#turnAdmission = dependencies.turnAdmission ?? new TutorTurnAdmission();
     this.#visualAidService = dependencies.visualAidService ?? null;
+    this.#londonMaterialService = dependencies.londonMaterialService ?? null;
     this.#runtime = createRoutePageContextRuntime({
       schedule: createTutorScheduleAdapter(
         scheduleStore,
@@ -1282,11 +1295,12 @@ export class TutorService {
       }
       let turn;
       try {
-        if (preparedSectionIds.length > 0) {
+        if (preparedSectionIds.length > 0 || this.#londonMaterialService !== null) {
           preparedReferenceScopeToken = Symbol(turnNonce);
           this.#preparedReferenceScopesByThread.set(threadBinding.threadId, Object.freeze({
             token: preparedReferenceScopeToken,
             sectionIds: preparedSectionIds,
+            dayId: input.dayId,
           }));
         }
         turn = await gateway.runTurn({
@@ -1544,9 +1558,16 @@ export class TutorService {
             preparedReferenceRetrieval,
             (threadId) => this.#preparedReferenceScopesByThread.get(threadId)?.sectionIds ?? null,
           );
+      const londonMaterialHandler = this.#londonMaterialService === null
+        ? null
+        : createLondonMaterialToolHandler(
+            this.#londonMaterialService,
+            (threadId) => this.#preparedReferenceScopesByThread.get(threadId)?.dayId ?? null,
+          );
       const dynamicTools = [
         ...(this.#visualAidService === null ? [] : learningVisualToolSpecs),
         ...(preparedReferenceRetrieval === null ? [] : preparedReferenceToolSpecs),
+        ...(this.#londonMaterialService === null ? [] : londonMaterialToolSpecs),
       ];
       const dynamicToolHandler = dynamicTools.length === 0
         ? null
@@ -1556,6 +1577,9 @@ export class TutorService {
             }
             if (preparedReferenceHandler !== null && isPreparedReferenceToolCall(params)) {
               return preparedReferenceHandler(params);
+            }
+            if (londonMaterialHandler !== null && isLondonMaterialToolCall(params)) {
+              return londonMaterialHandler(params);
             }
             throw new Error("Tutor dynamic tool is not registered");
           };

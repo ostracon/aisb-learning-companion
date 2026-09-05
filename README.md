@@ -213,6 +213,41 @@ and read the relevant parts in bounded chunks. The tool returns source URLs,
 page counts for PDFs, and content hashes; it cannot open arbitrary paths or
 unprepared web URLs.
 
+## Optional cohort-material snapshot
+
+The Companion can also use a private, local snapshot of cohort-shared talks,
+slides, learning images, and announced papers that are not part of the public
+curriculum repository. Put the snapshot at:
+
+```text
+aisb/
+└── london26-materials/
+    ├── model-context/
+    │   ├── manifest.json
+    │   └── text/
+    ├── drive/
+    └── slack/
+```
+
+`model-context/manifest.json` maps each resource to one or more programme days
+and points to a deterministic text or OCR projection. When this directory is
+present, the lesson tutor, learning manager, and whole-day review can search
+the snapshot and read long sources in bounded chunks. When it is absent, those
+tools return no snapshot material and the rest of the Companion works normally.
+
+Keep cohort material out of the public curriculum repository. Use the AISB
+checkout's local `.git/info/exclude` or an equivalent private location, and
+preserve any access label in the manifest. A `restricted_cohort_only` file must
+not be redistributed. The Companion treats every projection as untrusted source
+text and accepts only server-issued opaque resource IDs; assistants cannot use
+the tool to read arbitrary files or URLs.
+
+The Companion does not connect to Slack or Google Drive itself. Building or
+refreshing a snapshot is a deliberate administrative step. A reproducibility
+bundle should include the source files, text projections, manifest, calendar
+export, repository revision, file hashes, privacy exclusions, and restore
+instructions.
+
 ## Whole-day review
 
 Open a day in **Today**, then select **Review day**. Each programme

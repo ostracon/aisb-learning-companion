@@ -27,6 +27,13 @@ import {
   learningVisualToolSpecs,
   VISUAL_TOOLSET_VERSION,
 } from "../images/tool.js";
+import type { LondonMaterialRetrievalService } from "../london-materials/service.js";
+import {
+  createLondonMaterialToolHandler,
+  isLondonMaterialToolCall,
+  londonMaterialToolSpecs,
+  LONDON_MATERIAL_TOOLSET_VERSION,
+} from "../london-materials/tool.js";
 import type { DayReviewRetrievalService } from "../day-review/retrieval-service.js";
 import {
   createDayReviewToolHandler,
@@ -49,6 +56,7 @@ export interface ManagerContextPort {
 export interface ManagerServiceOptions {
   readonly dayId?: LearningDayId;
   readonly dayReviewRetrieval?: DayReviewRetrievalService;
+  readonly londonMaterials?: LondonMaterialRetrievalService;
 }
 
 interface ManagerStack {
@@ -173,9 +181,11 @@ export class ManagerService {
     if (this.#dayId !== null && options.dayReviewRetrieval === undefined) {
       throw new Error("A day review manager requires its scoped retrieval service");
     }
-    this.#toolsetVersion = this.#dayId === null
-      ? VISUAL_TOOLSET_VERSION
-      : `${VISUAL_TOOLSET_VERSION}.${DAY_REVIEW_TOOLSET_VERSION}`;
+    this.#toolsetVersion = [
+      VISUAL_TOOLSET_VERSION,
+      ...(this.#dayId === null ? [] : [DAY_REVIEW_TOOLSET_VERSION]),
+      ...(options.londonMaterials === undefined ? [] : [LONDON_MATERIAL_TOOLSET_VERSION]),
+    ].join(".");
   }
 
   public async readSession(): Promise<ManagerSessionView> {
@@ -486,11 +496,22 @@ export class ManagerService {
     const dayReviewHandler = this.#dayId === null
       ? null
       : createDayReviewToolHandler(this.options.dayReviewRetrieval!, this.#dayId);
-    const dynamicToolHandler = visualHandler === null && dayReviewHandler === null
+    const londonMaterialHandler = this.options.londonMaterials === undefined
+      ? null
+      : createLondonMaterialToolHandler(
+          this.options.londonMaterials,
+          () => this.#dayId ?? undefined,
+        );
+    const dynamicToolHandler = visualHandler === null
+      && dayReviewHandler === null
+      && londonMaterialHandler === null
       ? undefined
       : async (params: unknown) => {
           if (dayReviewHandler !== null && isDayReviewToolCall(params)) {
             return await dayReviewHandler(params);
+          }
+          if (londonMaterialHandler !== null && isLondonMaterialToolCall(params)) {
+            return await londonMaterialHandler(params);
           }
           if (visualHandler !== null) return await visualHandler(params);
           throw new Error("Unsupported application tool");
@@ -513,6 +534,7 @@ export class ManagerService {
           dynamicTools: [
             ...(this.visualAidService === null ? [] : learningVisualToolSpecs),
             ...(this.#dayId === null ? [] : dayReviewToolSpecs),
+            ...(this.options.londonMaterials === undefined ? [] : londonMaterialToolSpecs),
           ],
         }),
       };

@@ -93,6 +93,7 @@ import {
   OpenAIVisualImageProvider,
   VisualAidService,
 } from "./images/service.js";
+import { LondonMaterialRetrievalService } from "./london-materials/service.js";
 import { registerBackupRoutes } from "./backup/routes.js";
 import { BackupExportService } from "./backup/service.js";
 
@@ -153,6 +154,7 @@ const visualAidService = new VisualAidService(
     ? new OpenAIVisualImageProvider(process.env.CODEX_OPENAI_API_KEY ?? "")
     : null,
 );
+const londonMaterialService = new LondonMaterialRetrievalService(config.aisbRoot);
 const tutorService = new TutorService(
   config,
   scheduleStore,
@@ -164,7 +166,10 @@ const tutorService = new TutorService(
   tutorSessionLogStore,
   continuitySummaryStore,
   preparedReferenceContextSource,
-  config.imageGenerationAvailable ? { visualAidService } : {},
+  {
+    ...(config.imageGenerationAvailable ? { visualAidService } : {}),
+    londonMaterialService,
+  },
 );
 const managerService = new ManagerService(
   config,
@@ -182,6 +187,7 @@ const managerService = new ManagerService(
   tutorThreadBindingStore,
   undefined,
   config.imageGenerationAvailable ? visualAidService : null,
+  { londonMaterials: londonMaterialService },
 );
 const dayReviewRetrievalService = new DayReviewRetrievalService({
   schedule: scheduleStore,
@@ -209,7 +215,11 @@ const dayReviewServices = new Map(learningDayIds.map((dayId) => [
     tutorThreadBindingStore,
     undefined,
     config.imageGenerationAvailable ? visualAidService : null,
-    { dayId, dayReviewRetrieval: dayReviewRetrievalService },
+    {
+      dayId,
+      dayReviewRetrieval: dayReviewRetrievalService,
+      londonMaterials: londonMaterialService,
+    },
   ),
 ] as const));
 const backupExportService = new BackupExportService(config.stateRoot);
